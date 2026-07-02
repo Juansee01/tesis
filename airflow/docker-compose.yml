@@ -14,16 +14,13 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__LOGGING__REMOTE_LOGGING: "false"
-    AZURE_TENANT_ID: ${AZURE_TENANT_ID}
-    AZURE_CLIENT_ID: ${AZURE_CLIENT_ID}
-    AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET}
     FABRIC_WORKSPACE_ID: ${FABRIC_WORKSPACE_ID}
     FABRIC_LAKEHOUSE_ID: ${FABRIC_LAKEHOUSE_ID}
     ONELAKE_ABFSS: ${ONELAKE_ABFSS}
   volumes:
     - ./dags:/opt/airflow/dags
     - airflow-logs:/opt/airflow/logs
-    - ~/.azure:/home/airflow/.azure:ro
+    - ~/.azure:/home/airflow/.azure
   depends_on:
     postgres:
       condition: service_healthy

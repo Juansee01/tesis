@@ -3,19 +3,21 @@
 import os
 import time
 import requests
-from azure.identity import DefaultAzureCredential
+from azure.identity import AzureCliCredential, ChainedTokenCredential, ManagedIdentityCredential
 
 
 FABRIC_API = "https://api.fabric.microsoft.com/v1"
 TOKEN_SCOPE = "https://api.fabric.microsoft.com/.default"
 
 
+def _get_credential():
+    # Local dev: picks up az login from ~/.azure (mounted into the container)
+    # Production on ACI with managed identity: ManagedIdentityCredential kicks in
+    return ChainedTokenCredential(AzureCliCredential(), ManagedIdentityCredential())
+
+
 def get_fabric_token() -> str:
-    # DefaultAzureCredential picks up az login automatically in local dev.
-    # In production with a Service Principal, set AZURE_TENANT_ID, AZURE_CLIENT_ID,
-    # AZURE_CLIENT_SECRET as env vars and it will use those instead.
-    credential = DefaultAzureCredential()
-    token = credential.get_token(TOKEN_SCOPE)
+    token = _get_credential().get_token(TOKEN_SCOPE)
     return token.token
 
 
@@ -64,10 +66,7 @@ def wait_for_notebook(job_location: str, poll_interval: int = 30, timeout: int =
 
 
 def get_storage_options() -> dict:
-    # Uses DefaultAzureCredential — works with az login for local dev.
-    # For CI/CD add AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET as env vars.
-    credential = DefaultAzureCredential()
-    token = credential.get_token("https://storage.azure.com/.default").token
+    token = _get_credential().get_token("https://storage.azure.com/.default").token
     return {
         "account_name": "onelake",
         "bearer_token": token,

@@ -1,7 +1,13 @@
 FROM apache/airflow:2.9.3-python3.11
 
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git curl ca-certificates lsb-release gnupg && \
+    curl -sLS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg && \
+    echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $(lsb_release -cs) main" \
+        > /etc/apt/sources.list.d/azure-cli.list && \
+    apt-get update && apt-get install -y --no-install-recommends azure-cli && \
+    rm -rf /var/lib/apt/lists/*
 
 USER airflow
 

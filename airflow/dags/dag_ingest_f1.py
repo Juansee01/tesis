@@ -18,7 +18,7 @@ from fabric_utils import get_storage_options
 SEASON_ROUNDS = {
     2021: 22,
     2022: 22,
-    2023: 23,
+    2023: 22,
     2024: 24,
 }
 

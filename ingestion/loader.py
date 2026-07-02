@@ -13,6 +13,8 @@ class OneLakeLoader:
         self.base = lakehouse_abfss.rstrip("/")
 
     def _write(self, df: pd.DataFrame, path: str, mode: str = "overwrite"):
+        if df is None or df.empty or len(df.columns) == 0:
+            return
         write_deltalake(
             path,
             df,
@@ -22,12 +24,10 @@ class OneLakeLoader:
         )
 
     def write_bronze(self, df: pd.DataFrame, table: str, year: int, round_number: int):
-        # Bronze tables live in the Tables section, partitioned by year/round
         path = f"{self.base}/Tables/bronze_{table}/year={year}/round={round_number}"
         self._write(df, path, mode="overwrite")
 
     def write_bronze_dim(self, df: pd.DataFrame, table: str, year: int):
-        # Dimension-like tables (drivers, constructors) partitioned by year only
         path = f"{self.base}/Tables/bronze_{table}/year={year}"
         self._write(df, path, mode="overwrite")
 
