@@ -1,0 +1,494 @@
+F1 Analytics Platform
+Trabajo Fin de Máster
+Máster en Big Data & Data Engineering
+
+
+Autor: Juan Lizarralde
+Tutores: Jorge Centeno y Alberto González
+Setiembre 2026
+
+
+DESCRIPCIÓN DE LA PLANTILLA
+Esta plantilla sirve como guía para estructurar vuestro Trabajo Fin de Máster (TFM) en el ámbito de la Ingeniería de Datos. Su objetivo es garantizar que el documento final cubra de forma clara y completa los aspectos fundamentales del proyecto: desde la definición del problema y la metodología, hasta el diseño técnico, el desarrollo, la evaluación y las conclusiones.
+Todas las secciones se consideran obligatorias si aplican al caso concreto, y pueden complementarse libremente con anexos que aporten información adicional relevante.
+La extensión total del documento no debe superar 20 caras sin contar portada, anexos, bibliografía ni índice de contenidos.
+________________
+
+1. Resumen        4
+2. Palabras clave        5
+3. Introducción        6
+3.1. Contextualización del proyecto        6
+3.2. Objetivos del proyecto        6
+3.3. Justificación e interés        6
+4. Metodología        7
+4.1. Diseño general del proyecto        7
+4.2. Proceso de trabajo y fases (planificación)        7
+5. Arquitectura        8
+5.1. Diagrama general        8
+5.2. Descripción de la arquitectura técnica        8
+5.3. Justificación de elección de tecnologías        8
+5.4. Estimación básica de costes de infraestructura        8
+5.5. Estrategia DevOps        8
+6. Solución tecnológica        9
+6.1. Fuentes de datos        9
+6.2. Preparación de datos        9
+6.3. Flujos de datos        9
+6.4. Procesamiento (batch, streaming, etc.)        9
+6.5. Orquestación        9
+6.6. Almacenamiento y consulta        10
+6.7. Modelo predictivo de estrategia de pit stops        10
+6.8. Explotación de resultados        10
+6.9. Consideraciones éticas / legales del uso de datos        10
+7. Resultados y conclusiones        11
+7.1. Logros alcanzados y validación de los resultados        11
+7.2. Métricas utilizadas        11
+7.3. Comparativas realizadas        11
+7.4. Limitaciones identificadas        11
+7.5. Futuras líneas de mejora y/o desarrollo        11
+8. Anexos        12
+8.1. Anexo A – Diagrama de arquitectura        12
+8.2. Anexo B – Esquema de tablas Delta        12
+8.3. Anexo C – ML: esquema de features y arquitectura del modelo        12
+9. Bibliografía        13
+10. Declaración de uso de herramientas de IA        14
+
+
+1. Resumen
+
+El presente Trabajo Fin de Máster presenta el diseño e implementación de F1 Analytics Platform, una plataforma de análisis y predicción de datos de Fórmula 1 construida sobre arquitectura lakehouse en Microsoft Fabric. El proyecto parte de un problema concreto: los datos de F1 existen públicamente pero dispersos en dos fuentes heterogéneas (la librería fastf1 y la API Ergast/Jolpica-F1), sin una capa de consolidación que los haga accesibles para análisis estratégico ni para entrenar modelos predictivos de forma reproducible. Para resolverlo se desarrolla un pipeline ELT end-to-end que ingesta, procesa y reporta las temporadas 2021–2024, simulando el caso de uso de un equipo de análisis dentro de una escudería.
+
+La solución integra Apache Airflow para la orquestación, Microsoft Fabric OneLake como lakehouse con arquitectura medallion Bronze/Silver/Gold sobre Delta Lake, dbt y Fabric Notebooks (PySpark) para las transformaciones, y Power BI para el reporting. Como componente de mayor valor analítico, se entrena un modelo de clasificación (XGBoost) para predecir la ventana óptima de pit stop por piloto y circuito, utilizando los datos históricos de la capa Gold como feature store. El experimento de entrenamiento se registra con Fabric ML Experiments (MLflow). Cada decisión tecnológica se justifica frente a sus alternativas. El código se versiona en GitHub con tests unitarios pytest y CI/CD mediante GitHub Actions.
+
+El éxito del proyecto se valida mediante métricas de calidad de datos (tasa de nulos ≤ 2 % en Silver), SLAs del pipeline (ejecución semanal completa ≤ 60 minutos), benchmarking de rendimiento sobre la capa Gold (latencia ≤ 5 segundos) y métricas del modelo ML (F1-score ≥ 0,65 sobre el conjunto de test, temporada 2024).
+
+
+2. Palabras clave
+
+Data Lakehouse · Apache Airflow · Microsoft Fabric · Delta Lake · dbt · PySpark · Fórmula 1 · ELT · CI/CD · Power BI · Azure · Arquitectura Medallion · Great Expectations · pytest · XGBoost · scikit-learn · MLflow · Feature Engineering · Clasificación · Estrategia de pit stops
+
+
+3. Introducción
+
+   1. Contextualización del proyecto
+
+La Fórmula 1 genera volúmenes considerables de datos por evento: tiempos de vuelta, telemetría de los monoplazas, estrategias de pit stops, posiciones en pista y condiciones meteorológicas. Estos datos están disponibles públicamente a través de la librería Python fastf1 y el dataset histórico de Ergast (actualmente servido por Jolpica-F1), pero de forma dispersa y sin una capa de procesamiento que los haga accesibles para análisis estratégico ni para entrenar modelos predictivos de forma reproducible y automatizada.
+
+El problema de estrategia de pit stops es especialmente relevante: la decisión de cuándo llamar a un piloto a boxes puede determinar el resultado de una carrera, y es un problema de decisión con señales cuantificables (degradación de neumáticos, gaps en pista, tiempo perdido en el pit). Esto lo convierte en un caso de uso natural para aprendizaje automático supervisado sobre datos históricos.
+
+   2. Objetivos del proyecto
+
+1. Diseñar e implementar un pipeline ELT end-to-end sobre arquitectura lakehouse en Microsoft Fabric.
+   Criterio de éxito: pipeline ejecutable de extremo a extremo (Bronze → Silver → Gold) para las temporadas 2021–2024, con tiempo total de ejecución ≤ 60 minutos en ejecución semanal incremental.
+
+2. Aplicar la arquitectura medallion (Bronze/Silver/Gold) con Delta Lake sobre OneLake.
+   Criterio de éxito: tasa de nulos tolerados en tablas Silver ≤ 2 %; tasa de deduplicación documentada y validada con Great Expectations; particionamiento por temporada y Gran Premio verificado con consultas de prueba.
+
+3. Orquestar el pipeline con Apache Airflow en Azure Container Instances.
+   Criterio de éxito: DAGs ejecutables con reintentos automáticos (3 reintentos, backoff exponencial), backfill operativo para cargas históricas, y alertas de fallo funcionales.
+
+4. Desarrollar dashboards analíticos en Power BI para análisis de estrategia de F1.
+   Criterio de éxito: cuatro dashboards operativos (incluido el de predicciones ML) con latencia de consulta ≤ 5 segundos sobre Fabric SQL Endpoint, validados sobre datos reales de al menos dos temporadas.
+
+5. Entrenar un modelo de ML para predicción de la ventana óptima de pit stop.
+   Criterio de éxito: clasificador XGBoost con F1-score ≥ 0,65 sobre el conjunto de test (temporada 2024, no vista durante el entrenamiento), experimento registrado en Fabric ML Experiments (MLflow), predicciones batch escritas en la capa Gold y consumidas por Power BI.
+
+6. Entregar código: librería Python empaquetada, tests unitarios con pytest (cobertura ≥ 80 % de la librería de ingesta) y CI/CD con GitHub Actions.
+   Criterio de éxito: pipeline CI verde en cada push a main, artefacto de la librería publicado como paquete pip instalable en cada tag semántico.
+
+   3. Justificación e interés
+
+Desde el punto de vista de negocio, el proyecto simula el caso real de un equipo de análisis dentro de una escudería, donde la toma de decisiones estratégicas (estrategia de pit stops, comparativa de pilotos, evolución de constructores) depende de datos históricos consolidados. El componente ML añade una capa de valor diferencial: no solo describe lo que ocurrió, sino que genera una recomendación cuantificada sobre cuándo pisar el pit en función del estado de la carrera.
+
+Desde el punto de vista técnico, el proyecto articula el stack completo de un equipo de datos moderno con componente analítico: ingesta empaquetada como librería, lakehouse con capas medallion, procesamiento distribuido con Spark, modelado con dbt, feature engineering sobre la capa Gold, entrenamiento y registro de modelos con MLflow, orquestación con Airflow e inferencia batch escrita en el lakehouse. La elección de un dominio con datos densos y conocidos (F1) permite evaluar todas estas decisiones sobre un caso tangible y no abstracto.
+
+
+4. Metodología
+
+   1. Diseño general del proyecto
+
+El proyecto sigue un modelo ELT con arquitectura medallion de tres capas, extendida con una capa de ML. Los datos se extraen de fuentes públicas mediante una librería Python, se cargan en Bronze como datos crudos en Delta, se transforman a Silver (limpieza y enriquecimiento) y a Gold (modelo dimensional + tabla de features para ML). Sobre la capa Gold se entrena el modelo predictivo, cuyas predicciones batch se persisten de vuelta en Gold y se consumen desde Power BI. El pipeline completo es orquestado por Apache Airflow y el código reside en GitHub con CI/CD automatizado.
+
+   2. Proceso de trabajo y fases (planificación)
+
+Fase 1 - Setup y arquitectura (semanas 1–2): Definición de arquitectura (incluida la capa ML), creación del workspace en Fabric, configuración del repositorio GitHub y pipeline CI/CD, despliegue del contenedor Airflow en Azure Container Instances.
+
+Fase 2 - Ingesta (semanas 3–5): Desarrollo de la librería Python (fastf1 + Ergast/Jolpica-F1), tests unitarios con pytest (objetivo ≥ 80 % de cobertura), DAGs de Airflow con manejo de errores y reintentos.
+
+Fase 3 - Lakehouse Bronze/Silver (semanas 6–8): Carga en OneLake, notebooks PySpark de limpieza y enriquecimiento, tests de calidad con Great Expectations.
+
+Fase 4 - Capa Gold y feature engineering (semanas 9–10): Modelos dbt para análisis de pit stops, pilotos y constructores; tabla de features ML (mart_pitstop_features); tests dbt.
+
+Fase 5 - Modelo ML (semanas 11–12): Entrenamiento del clasificador XGBoost en Fabric Notebook, registro del experimento en Fabric ML Experiments (MLflow), evaluación sobre temporada 2024, DAG de inferencia batch, escritura de predicciones en Gold.
+
+Fase 6 - Reporting y validación (semanas 13–14): Fabric SQL Endpoint, cuatro dashboards Power BI (incluido dashboard de predicciones ML), benchmarking de rendimiento y validación de SLAs.
+
+
+5. Arquitectura
+
+   1. Diagrama general
+
+Ver Anexo A. El diagrama incluye: fuentes externas, librería de ingesta, Airflow (ACI), OneLake (Bronze/Silver/Gold), componentes de transformación (PySpark notebooks y dbt), capa ML (entrenamiento + inferencia + MLflow), SQL Endpoint y Power BI. Se anotan las interfaces de comunicación entre componentes (API REST de Fabric, protocolo ABFS) y el flujo de autenticación.
+
+   2. Descripción de la arquitectura técnica
+
+La arquitectura sigue un flujo top-down de siete capas con dos decisiones de diseño deliberadas: mantener la orquestación desacoplada de la plataforma de almacenamiento y cómputo, y mantener la capa ML dentro de Fabric para aprovechar la integración nativa con MLflow y el acceso directo a OneLake.
+
+(1) Las fuentes públicas (fastf1 y Ergast/Jolpica-F1) son consumidas por (2) una librería Python propia, empaquetada e instalable. (3) Apache Airflow, desplegado sobre Azure Container Instances, coordina todos los procesos. (4) Microsoft Fabric Lakehouse (OneLake) almacena los datos en Delta Lake en capas Bronze, Silver y Gold. (5) Las transformaciones se reparten entre Fabric Notebooks (PySpark) para Bronze → Silver y dbt para Silver → Gold. (6) La capa ML se ejecuta en un Fabric Notebook dedicado: carga la tabla mart_pitstop_features desde Gold, entrena el clasificador XGBoost, registra el experimento en Fabric ML Experiments (MLflow integrado en Fabric), y en inferencia escribe la tabla mart_pitstop_predictions de vuelta en Gold. (7) Fabric SQL Endpoint expone la capa Gold completa (incluidas las predicciones ML) a Power BI.
+
+Interfaces entre componentes:
+- Airflow → Fabric: invoca notebooks (entrenamiento e inferencia ML incluidos) a través de la API REST de Microsoft Fabric (endpoint base: https://api.fabric.microsoft.com/v1/). Autenticación mediante Service Principal registrado en Azure Active Directory, con permisos de Contributor sobre el workspace. Credenciales almacenadas como Airflow Connections cifradas.
+- Airflow → OneLake: escritura directa de archivos Delta mediante el protocolo ABFS (abfs://), usando el mismo Service Principal.
+- ML Notebook → Gold: lectura de mart_pitstop_features y escritura de mart_pitstop_predictions vía la API de Spark de Fabric (acceso directo al Lakehouse del mismo workspace, sin necesidad de credenciales adicionales).
+- ML Notebook → Fabric ML Experiments: logging de parámetros, métricas y artefactos del modelo mediante mlflow.log_param / mlflow.log_metric / mlflow.sklearn.log_model, usando el cliente MLflow nativo de Fabric (no requiere tracking server externo).
+- Particionamiento de tablas Delta: Bronze → (year, round); Silver → (year, round) en tablas de hechos; Gold → sin partición adicional (tablas agregadas y de predicciones, volumen manejable).
+- Permisos OneLake: el Service Principal tiene acceso de lectura y escritura sobre el item Lakehouse específico; no tiene permisos sobre otros workspaces.
+
+   3. Justificación de elección de tecnologías
+
+Cada tecnología se eligió frente a al menos una alternativa concreta.
+
+fastf1 / Ergast (API Jolpica-F1). Son las únicas fuentes públicas con datos granulares de telemetría y resultados oficiales. Ergast aporta resultados y clasificaciones desde 1950; fastf1 aporta el detalle de vuelta y telemetría. El reto de integración (unificación de nombres de pilotos y equipos) se resuelve en Silver. Las limitaciones se documentan en §6.1.
+
+Microsoft Fabric frente a Databricks. Se descartó Databricks por dos motivos: el acceso a Fabric está cubierto por el acuerdo Microsoft de la UCM (coste cero) y Fabric unifica en una sola plataforma SaaS el lakehouse, Spark, el serving SQL, Power BI y ML Experiments, reduciendo el número de integraciones. Databricks habría aportado más potencia de Spark (irrelevante para el volumen del proyecto) y MLflow gestionado, pero a un coste adicional y con más integraciones externas.
+
+Apache Airflow frente a la orquestación nativa de Fabric. Se evaluaron tres opciones: pipelines nativos de Fabric (low-code propietario, no portable), Airflow gestionado dentro de Fabric (ejecuta sobre la misma capacidad que los notebooks Spark, generando contención en capacidades educativas, problema ya experimentado en el TFM previo de pipelines en Cloud), y Airflow autohospedado en Azure Container Instances (opción elegida): DAGs versionables, testables y portables, desacoplados de la capacidad de Fabric.
+
+Delta Lake. Formato transaccional ACID, idóneo para cargas incrementales y time travel. No hubo alternativa real dentro de Fabric, que lo adopta nativamente.
+
+dbt frente a hacer todo en PySpark. dbt aporta testing declarativo, documentación automática y modelos SQL legibles. División deliberada: PySpark para limpieza masiva (Bronze → Silver), dbt para modelado de negocio y feature engineering (Silver → Gold).
+
+XGBoost frente a alternativas de ML. Se evaluaron tres opciones para el modelo predictivo:
+* Regresión logística / árbol de decisión (sklearn): demasiado simples para capturar interacciones no lineales entre features (degradación de neumáticos × gap × progreso de carrera). Adecuados como baseline de comparación.
+* Red neuronal (PyTorch / Keras): mayor capacidad expresiva, pero requiere más datos y es más difícil de interpretar. Con ~920 ejemplos de entrenamiento (4 temporadas × 23 GP × ~10 pilotos activos por carrera), el riesgo de overfitting es elevado sin regularización extensiva. Se usa como comparativa.
+* XGBoost (opción elegida): gradient boosting sobre árboles de decisión. Maneja bien tablas de tamaño moderado, es robusto ante features de diferente escala (no requiere normalización), aporta feature importance interpretable (relevante para justificar las predicciones ante un equipo de estrategia), y tiene un historial probado en competiciones de ML con datos tabulares. La librería xgboost es compatible con scikit-learn API, lo que facilita su integración en el notebook de Fabric y el logging con MLflow.
+
+Fabric ML Experiments (MLflow integrado) frente a MLflow autohospedado o Azure ML. Fabric incluye un servicio de tracking de experimentos MLflow nativo en el workspace, accesible desde notebooks sin configuración adicional. Esta opción evita el overhead operativo de un servidor MLflow adicional (que implicaría otro contenedor ACI y su base de datos) o el coste de Azure ML (que añadiría una capa de plataforma innecesaria para el volumen del proyecto). La única limitación es que el registry está acoplado al workspace de Fabric, lo que es aceptable para el alcance del TFM.
+
+GitHub Actions. CI/CD nativo del propio repositorio, sin infraestructura adicional.
+
+   4. Estimación básica de costes de infraestructura
+
+Supuestos del modelo de costes:
+- Frecuencia de ejecución: pipeline ELT semanal (52 ejecuciones/año) + carga histórica inicial (una vez) + reentrenamiento del modelo ML mensual o tras cada nueva temporada.
+- Tamaño medio por GP: ~50 MB Bronze, ~20 MB Silver, ~5 MB Gold. 4 temporadas × 24 GP: Bronze ≈ 4.6 GB, Silver ≈ 1.8 GB, Gold ≈ 0.5 GB. Tabla mart_pitstop_features: ~100 MB adicionales. Tabla mart_pitstop_predictions: ~10 MB. Artefacto del modelo XGBoost serializado: <5 MB.
+- Retención: datos históricos indefinidamente; logs de Airflow 30 días.
+- Entorno de desarrollo: capacidad educativa F2 de Fabric (sin coste bajo acuerdo UCM), ACI para Airflow.
+
+Estimación mensual en desarrollo (durante el TFM):
+- Azure Container Instances (Airflow, 0.5 vCPU / 1 GB RAM): ~€10/mes
+- Azure Database for PostgreSQL Flexible Server (metadata Airflow, Burstable B1ms): ~€15/mes
+- ADLS Gen2 (~7 GB + logs + artefactos ML): ~€1/mes
+- Fabric Capacity: €0 (UCM)
+- Fabric ML Experiments: €0 (incluido en la capacidad de Fabric)
+- Total estimado en desarrollo: ~€26/mes
+
+Estimación mensual en producción hipotética:
+- Azure Container Instances (Airflow, 1 vCPU / 2 GB RAM): ~€15/mes
+- Azure Database for PostgreSQL Flexible Server (General Purpose D2s): ~€50/mes
+- ADLS Gen2 (~50 GB, incluye artefactos ML): ~€5/mes
+- Fabric Capacity (SKU F4): ~€100–200/mes
+- Total estimado en producción: ~€170–270/mes
+- Nota: el entrenamiento de XGBoost sobre ~920 ejemplos con features tabulares no requiere GPU ni cómputo distribuido; se ejecuta en el driver node del Fabric Notebook en <5 minutos, sin coste adicional al de la capacidad ya utilizada por el pipeline ELT.
+
+   5. Estrategia DevOps
+
+Estructura del repositorio: /ingestion (librería Python con pyproject.toml), /dbt (modelos, seeds y tests), /airflow (DAGs y configuración Docker), /ml (notebook de entrenamiento, script de inferencia, requirements ML), /tests (tests unitarios pytest) y /docs (diagramas y documentación técnica).
+
+Pipeline CI/CD (GitHub Actions):
+- En cada push: linting (flake8, black --check), tests pytest con cobertura mínima 80 % sobre /ingestion, validación dbt (dbt parse + dbt test sobre datos sintéticos), validación de sintaxis de los notebooks ML (nbformat check).
+- En cada merge a main: generación del artefacto de la librería (.whl + .tar.gz), publicación como GitHub Package, tag semántico automático (conventional commits). El modelo ML no se despliega automáticamente; se activa manualmente desde el DAG dag_train_ml para mantener control sobre la versión en producción.
+- Artefactos generados: paquete pip de la librería de ingesta, informe de cobertura HTML, documentación dbt generada (dbt docs generate).
+- Secrets: credenciales del Service Principal de Azure y tokens de Fabric almacenados como GitHub Secrets; nunca incluidos en código ni artefactos.
+- Versionado del modelo ML: el notebook de entrenamiento loguea el artefacto del modelo en Fabric ML Experiments con el tag de la versión del dataset (año/temporada) y el hash del commit de GitHub que lo generó, permitiendo trazabilidad completa entre versión de código, datos de entrenamiento y modelo registrado.
+
+
+6. Solución tecnológica
+
+   1. Fuentes de datos
+
+El proyecto utiliza dos fuentes públicas y gratuitas, accesibles a través de fastf1. Fastf1 expone telemetría, tiempos de vuelta, posiciones y condiciones meteorológicas por sesión y circuito. Los resultados oficiales, clasificaciones y el histórico desde 1950 provienen del dataset Ergast, actualmente servido por Jolpica-F1 (sucesor compatible de la API Ergast, discontinuada a finales de 2024). En esta memoria se conserva el nombre Ergast para referirse al conjunto de datos.
+
+Limitaciones y plan de mitigación:
+
+fastf1:
+- Telemetría a 20 Hz disponible de forma completa a partir de 2018; sesiones anteriores pueden carecer de ella.
+- Rate limit implícito: sin caché local, descargar una sesión completa puede tardar 2–5 minutos. Mitigación: activación del sistema de caché en disco de fastf1 (fastf1.Cache.enable_cache('/path/cache')), eliminando llamadas HTTP repetidas para datos ya descargados.
+- Algunas sesiones de 2018–2019 presentan discontinuidades. Mitigación: flag de disponibilidad documentado en Bronze; nulos manejados explícitamente en Silver. Para el modelo ML, solo se usan sesiones con cobertura completa (2021–2024).
+
+Jolpica-F1 (Ergast):
+- Rate limit: 4 peticiones/segundo y 200 peticiones/hora por IP. Mitigación: cliente HTTP con backoff exponencial (tenacity: espera inicial 1 s, máximo 60 s, 5 reintentos). Tests de integración usan mocks (unittest.mock) para no consumir el rate limit en CI.
+- Ausencias puntuales para temporadas recientes. Mitigación: sensor Airflow verifica disponibilidad antes de intentar la carga.
+
+Estimación de volumen por temporada:
+- 23–24 GP por temporada (2021–2024).
+- Lap times: ~20.000 registros por carrera; telemetría comprimida ~50 MB/carrera en Delta.
+- Tablas Ergast: results (~500 filas/temp.), pitstops (~600 filas/temp.).
+- Volumen total: Bronze ≈ 4–5 GB, Silver ≈ 1.5–2 GB, Gold ≈ 200–500 MB, mart_pitstop_features ≈ 100 MB.
+- Dataset de entrenamiento ML: ~920 ejemplos (4 temporadas × 23 GP × ~10 estrategias por carrera), con ~12 features numéricas por ejemplo; cabe íntegramente en memoria del driver node del Fabric Notebook (<500 MB).
+
+   2. Preparación de datos
+
+En la capa Silver se aplican las siguientes transformaciones:
+
+Reglas de limpieza:
+- Normalización de tipos: tiempos de vuelta de formato "M:SS.mmm" a float (segundos); campos inválidos ("\\N" en Ergast) → NULL con tipado explícito.
+- Manejo de nulos: vueltas sin tiempo (abandono, bandera roja, pit stop) marcadas con is_valid_lap = False; no se eliminan de Silver para preservar trazabilidad.
+- Deduplicación: por clave (year, round, driver_id, lap_number) en fact_laps; tasa registrada en test Great Expectations.
+
+Normalización entre fuentes:
+- driver_id de Ergast (slug: "hamilton") vs. abreviación fastf1 ("HAM"): unificado en dim_drivers cruzando DriverId de fastf1 con driverId de Ergast; lookup manual para 3–4 casos con inconsistencias históricas.
+- Nombres de constructores: seed dbt (constructors_mapping.csv) mapea variantes entre fuentes.
+
+Join keys: cruce principal por (year, round, driver_abbreviation → driver_id); cruce telemetría-resultados por (year, round, driver_abbreviation, lap_number).
+
+Tablas Silver: fact_laps, fact_pitstops, fact_results, fact_qualifying, dim_drivers, dim_circuits, dim_constructors.
+
+Feature engineering para ML (modelo dbt en Gold: mart_pitstop_features):
+Esta tabla se construye a partir de las tablas Silver y es la entrada del modelo predictivo. Cada fila representa una carrera × piloto con features agregadas a nivel de estrategia (no a nivel de vuelta individual), para evitar la complejidad de series temporales con ~20.000 filas/carrera:
+- tyre_age_at_pit: edad del neumático en la vuelta en que se realizó el pit stop (de fact_pitstops + fact_laps).
+- compound_at_pit: compuesto montado en la primera parada (SOFT/MEDIUM/HARD codificado como 0/1/2).
+- lap_time_degradation_slope: pendiente de regresión lineal de los 10 últimos tiempos de vuelta previos al pit (calculada en el notebook de entrenamiento a partir de fact_laps, no en dbt por su naturaleza iterativa).
+- gap_to_pit_window_leader: diferencia de tiempo al líder del stint en la vuelta del pit stop.
+- race_progress_at_pit: (lap_of_pit / total_laps), señal de cuánto ha avanzado la carrera.
+- position_at_pit: posición en carrera en la vuelta del pit stop.
+- n_stops_total: número de paradas totales del piloto en la carrera.
+- circuit_avg_pit_time_loss: tiempo promedio histórico perdido en el pit en este circuito (de mart_pitstop_strategy, agregado por circuit_id).
+- weather_is_dry: 1 si carrera seca, 0 si lluvia o mixta (de fact_laps, campo weather).
+- constructor_avg_pitstop_duration: duración media de pit stops del equipo en temporadas anteriores (de fact_pitstops, agrupado por constructor_id).
+- Variable objetivo (label): pit_window_class — clase de ventana de pit stop: EARLY (vueltas 1–20), MID (21–40), LATE (>40). Derivada de fact_pitstops. Problema de clasificación multiclase con 3 clases.
+
+Tests unitarios cubriendo transformaciones (pytest):
+- test_normalize_lap_time: verifica conversión "1:23.456" → 83.456.
+- test_handle_null_lap: vueltas sin tiempo → is_valid_lap = False.
+- test_driver_id_mapping: todos los drivers de fastf1 tienen contraparte en Ergast para 2021–2024.
+- test_dedup_fact_laps: 0 duplicados por (year, round, driver_id, lap_number).
+- test_feature_no_nulls: mart_pitstop_features no tiene nulos en ninguna de las 11 features usadas por el modelo.
+- test_label_distribution: las tres clases de pit_window_class tienen al menos 100 ejemplos cada una en el dataset de entrenamiento.
+
+   3. Flujos de datos
+
+Existen dos flujos principales. El flujo ELT se ejecuta en modo batch semanal (o on-demand para la carga histórica inicial): extracción → Bronze → Silver → Gold (tablas descriptivas + mart_pitstop_features) → validación de calidad → notificación. El flujo ML se ejecuta en dos subflujos: entrenamiento (dag_train_ml, activado manualmente o tras nueva temporada): carga mart_pitstop_features → entrenamiento XGBoost → evaluación → registro en MLflow → activación del modelo; inferencia (dag_ml_predict, activado automáticamente al finalizar dag_transform_gold): carga modelo registrado → genera predicciones para el GP más reciente → escribe mart_pitstop_predictions en Gold. Las referencias cruzadas entre flujos y componentes se detallan en el Anexo A y el Anexo C.
+
+   4. Procesamiento (batch, streaming, etc.)
+
+El procesamiento es exclusivamente batch. Las transformaciones Bronze → Silver se realizan con Fabric Notebooks (PySpark). Las transformaciones Silver → Gold (tablas descriptivas y mart_pitstop_features) se realizan con dbt. El entrenamiento del modelo ML se realiza en un Fabric Notebook con scikit-learn y xgboost (sin Spark distribuido: el dataset cabe en el driver node). La inferencia batch genera predicciones para las carreras disponibles en Gold y las persiste como tabla Delta. No se implementa streaming ni inferencia en tiempo real.
+
+   5. Orquestación
+
+Apache Airflow gestiona el pipeline completo mediante DAGs Python versionados en GitHub, ejecutándose en Docker sobre Azure Container Instances.
+
+Despliegue de Airflow:
+- Imagen Docker: apache/airflow:2.9.x con dependencias adicionales (azure-storage-blob, requests, tenacity) en requirements.txt versionado. Publicada en Azure Container Registry (ACR).
+- Persistencia de metadatos: PostgreSQL en Azure Database for PostgreSQL Flexible Server (Burstable B1ms para desarrollo). Cadena de conexión almacenada como Airflow Connection cifrada (fernet key en Azure Key Vault).
+- Backups: copias automáticas de PostgreSQL (retención 7 días); DAGs recuperables íntegramente desde GitHub.
+- Variables y secretos: credenciales del Service Principal almacenadas como Airflow Variables cifradas.
+
+Diseño de DAGs (responsabilidad única):
+- dag_ingest_f1: extracción y carga a Bronze. Sensores de disponibilidad previos a la ingesta.
+- dag_transform_silver: limpieza y enriquecimiento con PySpark (invoca API REST de Fabric).
+- dag_transform_gold: ejecución de modelos dbt (dbt run + dbt test, incluido mart_pitstop_features).
+- dag_validate: tests de calidad Great Expectations sobre Silver y Gold.
+- dag_ml_predict: carga el modelo registrado en Fabric ML Experiments → genera predicciones de pit_window_class para el GP más reciente → escribe mart_pitstop_predictions en Gold. Se activa automáticamente al finalizar dag_transform_gold.
+- dag_train_ml: activación manual (o programada mensualmente). Pasos: carga mart_pitstop_features → entrenamiento XGBoost con split temporal (2021–2023 train, 2024 test) → evaluación (F1-score, precision, recall, AUC-ROC) → si F1-score ≥ 0,65 en test: registra el modelo en Fabric ML Experiments y lo marca como "production"; si no: notificación de alerta sin reemplazar el modelo activo.
+
+Estrategia de reintentos y backfill:
+- Todos los tasks: retries=3, retry_delay=timedelta(minutes=5), retry_exponential_backoff=True.
+- Backfills históricos: airflow dags backfill por rango de fechas, un GP por ejecución.
+
+Monitorización y alertas:
+- Logs por task en ADLS Gen2 (remote_base_log_folder apuntando a Azure Storage).
+- EmailOperator en caso de fallo de cualquier DAG. Alerta específica para dag_train_ml si el modelo nuevo no supera el umbral de F1-score.
+- La UI de Airflow expone estado de todos los DAGs, historial y logs.
+
+   6. Almacenamiento y consulta
+
+Los datos se almacenan en Microsoft Fabric OneLake (ADLS Gen2) en formato Delta Lake, en capas Bronze (datos crudos, part. year/round), Silver (tablas limpias, part. year/round para hechos) y Gold (modelo dimensional + features ML + predicciones ML). Los artefactos del modelo XGBoost se almacenan en Fabric ML Experiments (backed por OneLake). La capa Gold completa (incluidas las predicciones) se expone a través del Fabric SQL Endpoint, habilitando DirectQuery desde Power BI.
+
+   7. Modelo predictivo de estrategia de pit stops
+
+Problema de ML: dado el historial de una carrera hasta el momento del pit stop, clasificar la ventana de parada (EARLY / MID / LATE) con el objetivo de identificar cuándo una parada temprana, media o tardía resulta estratégicamente ventajosa en cada circuito.
+
+Dataset:
+- Fuente: mart_pitstop_features (tabla Gold generada por dbt).
+- Tamaño: ~920 ejemplos (4 temporadas × ~23 GP × ~10 pilotos por carrera con estrategia de 1 stop; los pilotos con 2 stops generan 2 ejemplos).
+- Split temporal: train 2021–2022 (~460 ejemplos), validación 2023 (~230 ejemplos), test 2024 (~230 ejemplos). El split temporal es obligatorio para evitar data leakage (no se puede mezclar aleatoriamente porque los GP de 2024 son informativamente posteriores a los de 2021).
+- Desbalanceo de clases: la clase MID es la más frecuente (~50 % de los stops); EARLY y LATE son menos frecuentes (~25 % cada una). Se gestiona con el parámetro scale_pos_weight de XGBoost y evaluación con F1-score macro.
+
+Features (11): tyre_age_at_pit, compound_at_pit, lap_time_degradation_slope, gap_to_pit_window_leader, race_progress_at_pit, position_at_pit, n_stops_total, circuit_avg_pit_time_loss, weather_is_dry, constructor_avg_pitstop_duration, safety_car_deployed (de fact_laps, flag de SC en carrera).
+
+Modelo: XGBoostClassifier con búsqueda de hiperparámetros mediante GridSearchCV sobre el conjunto de validación (2023). Hiperparámetros buscados: n_estimators ∈ {100, 200, 500}, max_depth ∈ {3, 5, 7}, learning_rate ∈ {0.01, 0.1}, subsample ∈ {0.8, 1.0}.
+
+Baseline de comparación: clasificador que siempre predice la clase mayoritaria (MID). F1-score macro del baseline ≈ 0,17 (trivial). Se comparan también: árbol de decisión simple (sklearn DecisionTreeClassifier, max_depth=3) y regresión logística multinomial. El XGBoost debe superar a ambas alternativas en F1-score macro sobre el test set para justificar su elección.
+
+Registro y trazabilidad (Fabric ML Experiments / MLflow):
+- Parámetros logueados: todos los hiperparámetros del modelo ganador, versión del dataset (año de cobertura + hash del commit de Gold).
+- Métricas logueadas: F1-score macro (train, validation, test), precision y recall por clase, AUC-ROC multiclase (OvR).
+- Artefacto logueado: modelo serializado (mlflow.xgboost.log_model), matriz de confusión como imagen, gráfico de feature importance.
+- Tag de producción: el DAG dag_train_ml marca como "production" el run que supere el umbral; dag_ml_predict carga siempre la versión marcada como "production".
+
+Inferencia batch:
+- El DAG dag_ml_predict invoca el notebook de inferencia vía API REST de Fabric.
+- El notebook carga el modelo de producción desde Fabric ML Experiments, carga mart_pitstop_features para el GP más reciente, genera probabilidades por clase y la clase predicha, y escribe la tabla mart_pitstop_predictions en Gold.
+- Esquema de mart_pitstop_predictions: (year INT, round INT, driver_id STRING, predicted_window STRING, prob_early DOUBLE, prob_mid DOUBLE, prob_late DOUBLE, model_version STRING, inference_ts TIMESTAMP).
+
+Interpretabilidad: se genera el gráfico de feature importance del modelo XGBoost (ganancia media por feature) y se documenta en el Anexo C. Se espera que tyre_age_at_pit y race_progress_at_pit sean las features más determinantes, hipótesis que se validará empíricamente.
+
+   8. Explotación de resultados (reporting, modelos…)
+
+Power BI expone cuatro dashboards principales conectados mediante DirectQuery al Fabric SQL Endpoint:
+(1) Análisis de estrategia de pit stops: ventanas de undercut/overcut por carrera y equipo, comparativa de tiempos de pit stop por escudería.
+(2) Rendimiento de pilotos: comparativa de tiempos de vuelta, consistencia y evolución por circuito a lo largo de las temporadas 2021–2024.
+(3) Evolución de constructores: puntos acumulados, tendencia de rendimiento y correlación con actualizaciones técnicas.
+(4) Predicciones ML de ventana de pit stop: para cada GP y piloto, muestra la ventana predicha (EARLY / MID / LATE), las probabilidades por clase y la comparación con la estrategia real adoptada. Permite al analista evaluar si el modelo habría recomendado la misma ventana que se utilizó en carrera.
+
+   9. Consideraciones éticas / legales del uso de datos
+
+Los datos utilizados son exclusivamente públicos y de libre acceso (fastf1 bajo licencia MIT; Ergast/Jolpica-F1, acceso público y gratuito). No se procesan datos personales ni sensibles en el sentido del RGPD. Los datos de telemetría corresponden a vehículos y resultados deportivos. El uso es estrictamente académico y no comercial.
+
+El modelo de ML no toma decisiones autónomas con consecuencias reales; sus predicciones son de naturaleza analítica/descriptiva post-hoc, basadas exclusivamente en datos históricos públicos. No existe riesgo de discriminación algorítmica.
+
+Gobernanza de datos: (a) linaje trazable mediante el grafo de dependencias de dbt (incluyendo mart_pitstop_features); (b) control de acceso al workspace de Fabric restringido al autor y los tutores; (c) revisión de que ningún log, captura de pantalla o anexo contenga credenciales, tokens o llaves; (d) la versión del modelo ML queda vinculada al hash del commit de GitHub que lo generó, garantizando reproducibilidad. Si en futuras ampliaciones se incorporan datos de terceros con posible contenido personal, se aplicarán técnicas de anonimización y se revisará la base legal de tratamiento conforme al RGPD.
+
+
+7. Resultados y conclusiones
+
+   1. Logros alcanzados y validación de los resultados
+
+[Sección a completar tras la fase de desarrollo.]
+
+Plan de validación del pipeline ELT: ejecución completa sobre la temporada 2023 (23 GP) para medir tiempos de ejecución por etapa y comparar con los SLAs de §3.2. Si la capacidad educativa de Fabric impone restricciones, se sustituirá por un dataset sintético de escala equivalente.
+
+Plan de validación del modelo ML: evaluación del clasificador XGBoost sobre el test set (temporada 2024, no vista en entrenamiento). Se reportarán F1-score macro, precision y recall por clase, y matriz de confusión. Se comparará con los tres baselines (clase mayoritaria, árbol de decisión, regresión logística). Para dar contexto a las métricas, se seleccionarán 3–5 GP representativos de 2024 y se mostrará en el dashboard #4 la predicción del modelo frente a la estrategia real adoptada, comentando los aciertos y errores más significativos.
+
+   2. Métricas utilizadas
+
+Métricas de calidad de datos (Great Expectations):
+- Tasa de nulos en tablas Silver: ≤ 2 % en columnas clave (lap_time, driver_id, round).
+- Tasa de deduplicación: 0 % de duplicados en fact_laps por (year, round, driver_id, lap_number).
+- Cobertura de drivers: 100 % de los drivers activos en 2021–2024 en dim_drivers con driver_id unificado.
+- Integridad referencial: 100 % de filas en fact_laps con driver_id existente en dim_drivers.
+- Completitud de mart_pitstop_features: 0 % de nulos en las 11 features de entrada del modelo.
+
+Métricas de rendimiento del pipeline:
+- Tiempo total del pipeline semanal incremental: objetivo ≤ 60 minutos.
+- Notebook PySpark Bronze → Silver por GP: objetivo ≤ 10 minutos.
+- dbt run (modelos Gold, incluido mart_pitstop_features): objetivo ≤ 5 minutos.
+- Entrenamiento XGBoost (dag_train_ml): objetivo ≤ 10 minutos (sin GPU).
+- Inferencia batch por GP (dag_ml_predict): objetivo ≤ 2 minutos.
+
+Métricas de rendimiento de dashboards:
+- Latencia de consultas (p95) sobre Fabric SQL Endpoint: objetivo ≤ 5 segundos para los cuatro dashboards.
+
+Métricas del modelo ML:
+- F1-score macro sobre test set (2024): objetivo ≥ 0,65.
+- F1-score por clase (EARLY, MID, LATE): documentado individualmente para identificar clases difíciles.
+- AUC-ROC multiclase (One-vs-Rest): objetivo ≥ 0,75.
+- Comparación con baseline (clase mayoritaria): el modelo debe superar al baseline en ≥ 20 puntos de F1-score macro.
+
+Métricas de calidad de código:
+- Cobertura pytest sobre /ingestion: objetivo ≥ 80 %.
+- Pipeline CI verde en todos los pushes a main: objetivo 100 %.
+
+   3. Comparativas realizadas
+
+[Sección a completar tras la fase de desarrollo.]
+
+Comparativa de pipeline: tiempo de ejecución del notebook PySpark Bronze → Silver de un GP representativo (GP España 2023) con particionamiento optimizado (year/round) frente a lectura no particionada del mismo dato. Si la capacidad educativa impide la prueba, se sustituye por un dataset sintético de escala equivalente.
+
+Comparativa de modelos ML: F1-score macro sobre el test set de 2024 para cuatro modelos: (1) baseline clase mayoritaria, (2) árbol de decisión (max_depth=3), (3) regresión logística multinomial, (4) XGBoost (opción elegida). Se reportará la tabla comparativa de métricas y el tiempo de entrenamiento de cada modelo. La feature importance del XGBoost se comparará cualitativamente con el conocimiento experto de estrategia de F1 para validar que las features seleccionadas tienen sentido empírico (e.g., tyre_age_at_pit debería ser la feature más determinante).
+
+   4. Limitaciones identificadas
+
+Sobredimensionamiento consciente de la arquitectura. Para el volumen de datos del proyecto, una solución con Fabric Notebooks programados nativamente habría sido funcionalmente suficiente. La adopción del stack completo (Airflow, dbt, librería empaquetada, CI/CD y ML) responde al objetivo de ejercitar y demostrar el conjunto de técnicas propias de un equipo de datos moderno. La arquitectura medallion, el rigor de ingeniería de software y el componente ML aportan valor real; Airflow tiene en este caso un peso demostrativo mayor que su necesidad estricta.
+
+Volumen acotado y ausencia de validación a escala. El proyecto no somete la arquitectura a volúmenes de big data reales. La capacidad educativa de Fabric presentó episodios de TooManyRequestsForCapacity, condicionando las pruebas de carga. El dataset de ML (~920 ejemplos) es pequeño para deep learning pero suficiente para gradient boosting.
+
+Alcance histórico (post-hoc) del modelo ML. El modelo predice la ventana de pit stop a partir de features conocidas en el momento del pit real, no en tiempo real durante la carrera. Su utilidad es analítica: permite auditar si las estrategias históricas fueron coherentes con los patrones aprendidos. La extensión a inferencia en tiempo real (durante la carrera, con features actualizadas vuelta a vuelta) se plantea como línea futura.
+
+Dependencia de fuentes públicas sin SLA. La API Ergast fue discontinuada a finales de 2024; Jolpica-F1 es su sucesor pero sin garantías de continuidad. El proyecto depende de infraestructura comunitaria gratuita sujeta a rate limits.
+
+Procesamiento exclusivamente batch. La solución no contempla ingesta ni inferencia en tiempo real.
+
+   5. Futuras líneas de mejora y/o desarrollo
+
+- Inferencia ML en tiempo real durante la carrera: implementar dag de inferencia vuelta a vuelta (o cada 5 vueltas) durante el evento en directo, usando streaming de datos de fastf1 Live Timing + Azure Event Hubs, con el modelo XGBoost ya entrenado actualizado incrementalmente.
+- Mejora del modelo: incorporar features de tiempo real (safety car activo, VSC, lluvia súbita), experimentar con modelos de series temporales (LSTM o Transformer sobre secuencias de vueltas) cuando se disponga de más datos.
+- Extensión del análisis: datos de telemetría a nivel de micro-sector para features de degradación más precisas.
+- CD completo: automatización del despliegue a Fabric (CD) cuando se fusionen cambios en modelos dbt o en el notebook ML, con validación automática de métricas antes del despliegue.
+- Integración de alertas con Microsoft Teams o PagerDuty.
+
+
+8. Anexos
+
+   1. Anexo A – Diagrama de arquitectura
+
+Diagrama end-to-end del pipeline anotado con interfaces de comunicación:
+fastf1/Ergast (API pública) → [HTTP + cache local] → Librería Python de ingesta → [API REST Fabric + ABFS] → Airflow (ACI/Docker) → [API REST Fabric] → Fabric Lakehouse Bronze (Delta, part. year/round) → [PySpark Notebook] → Silver (Delta, tablas normalizadas) → [dbt] → Gold (Delta: tablas descriptivas + mart_pitstop_features + mart_pitstop_predictions) → [Fabric SQL Endpoint] → Power BI (4 dashboards).
+Capa ML (dentro de Fabric): Gold (mart_pitstop_features) → [Fabric Notebook: XGBoost training] → Fabric ML Experiments (MLflow: parámetros, métricas, artefacto modelo) → [Fabric Notebook: inferencia batch] → Gold (mart_pitstop_predictions).
+El diagrama completo incluye flujos de autenticación (Service Principal → AAD → token → API), permisos OneLake y particionamiento de tablas.
+
+   2. Anexo B – Esquema de tablas Delta
+
+Tablas Silver (columnas principales y tipos):
+- fact_laps: (year INT, round INT, driver_id STRING, lap_number INT, lap_time DOUBLE, is_valid_lap BOOLEAN, compound STRING, tyre_life INT, sector1_time DOUBLE, sector2_time DOUBLE, sector3_time DOUBLE, weather STRING, safety_car BOOLEAN)
+- fact_pitstops: (year INT, round INT, driver_id STRING, stop INT, lap INT, duration DOUBLE)
+- fact_results: (year INT, round INT, driver_id STRING, constructor_id STRING, grid INT, position INT, points DOUBLE, status STRING, total_laps INT)
+- dim_drivers: (driver_id STRING, abbreviation STRING, forename STRING, surname STRING, nationality STRING)
+- dim_circuits: (circuit_id STRING, circuit_name STRING, country STRING, location STRING, avg_pit_time_loss DOUBLE)
+- dim_constructors: (constructor_id STRING, constructor_name STRING, nationality STRING)
+
+Tablas Gold (modelos dbt):
+- mart_lap_performance: agregaciones de tiempos de vuelta por piloto, carrera y temporada.
+- mart_pitstop_strategy: análisis de ventanas undercut/overcut por equipo y carrera.
+- mart_constructor_standings: evolución acumulada de puntos por constructor y temporada.
+- mart_pitstop_features: tabla de features ML (ver §6.2 y Anexo C).
+- mart_pitstop_predictions: predicciones del modelo de ventana óptima (ver §6.7).
+
+   3. Anexo C – ML: esquema de features y arquitectura del modelo
+
+Esquema de mart_pitstop_features (entrada del modelo):
+(year INT, round INT, circuit_id STRING, driver_id STRING, constructor_id STRING,
+tyre_age_at_pit INT, compound_at_pit INT, lap_time_degradation_slope DOUBLE,
+gap_to_pit_window_leader DOUBLE, race_progress_at_pit DOUBLE, position_at_pit INT,
+n_stops_total INT, circuit_avg_pit_time_loss DOUBLE, weather_is_dry INT,
+constructor_avg_pitstop_duration DOUBLE, safety_car_deployed INT,
+pit_window_class STRING — label: EARLY / MID / LATE)
+
+Arquitectura del modelo XGBoost:
+- Tipo: XGBoostClassifier multiclase (objective='multi:softprob', num_class=3).
+- Preprocesamiento: sin normalización (XGBoost es invariante a escala); encoding de pit_window_class a enteros (EARLY=0, MID=1, LATE=2) con LabelEncoder de sklearn.
+- Split: train 2021–2022, validation 2023, test 2024.
+- Búsqueda de hiperparámetros: GridSearchCV (5-fold CV sobre 2021–2022) optimizando F1-score macro; grid: n_estimators ∈ {100, 200, 500}, max_depth ∈ {3, 5, 7}, learning_rate ∈ {0.01, 0.1}, subsample ∈ {0.8, 1.0}.
+- Gestión del desbalanceo: parámetro sample_weight proporcional al inverso de la frecuencia de clase en el train set.
+- Umbral de producción: F1-score macro ≥ 0,65 en test set (2024) para activar el modelo.
+- Feature importance: gráfico de ganancia media por feature incluido en el run de MLflow y en este anexo.
+
+
+9. Bibliografía
+
+[1] Fastf1. Open-source Python library for Formula 1 data. https://github.com/theOehrly/Fast-F1. Licencia MIT.
+[2] Jolpica-F1 API (sucesor de Ergast Developer API). https://github.com/jolpica/jolpica-f1. Acceso público y gratuito.
+[3] Microsoft Fabric Documentation. https://learn.microsoft.com/en-us/fabric/. Microsoft, 2024.
+[4] Apache Airflow Documentation. https://airflow.apache.org/docs/. Apache Software Foundation, 2024.
+[5] dbt Documentation. https://docs.getdbt.com/. dbt Labs, 2024.
+[6] Delta Lake Documentation. https://docs.delta.io/. Linux Foundation, 2024.
+[7] Great Expectations Documentation. https://docs.greatexpectations.io/. Great Expectations, 2024.
+[8] Kleppmann, M. (2017). Designing Data-Intensive Applications. O'Reilly Media.
+[9] Reis, J., Housley, M. (2022). Fundamentals of Data Engineering. O'Reilly Media.
+[10] Azure Container Instances Documentation. https://learn.microsoft.com/en-us/azure/container-instances/. Microsoft, 2024.
+[11] tenacity. Python library for retrying code. https://github.com/jd/tenacity. Licencia Apache 2.0.
+[12] Chen, T., Guestrin, C. (2016). XGBoost: A Scalable Tree Boosting System. Proceedings of KDD 2016. https://arxiv.org/abs/1603.02754.
+[13] scikit-learn: Machine Learning in Python. https://scikit-learn.org/. Licencia BSD.
+[14] MLflow Documentation. https://mlflow.org/docs/latest/. Linux Foundation, 2024.
+[15] Microsoft Fabric ML Experiments Documentation. https://learn.microsoft.com/en-us/fabric/data-science/machine-learning-experiment. Microsoft, 2024.
+[16] Pedregosa, F. et al. (2011). Scikit-learn: Machine Learning in Python. JMLR 12, 2825–2830.
+
+
+10. Declaración de uso de herramientas de IA
+
+Durante la elaboración de este TFM se han utilizado herramientas de inteligencia artificial generativa (específicamente Claude de Anthropic) para los siguientes propósitos:
+- Revisión y corrección de redacción en secciones de la memoria.
+- Generación de fragmentos de código de ejemplo como punto de partida para la librería de ingesta, los DAGs de Airflow y el notebook de entrenamiento ML, revisados y adaptados por el autor antes de su integración.
+- Consulta de documentación técnica y resolución de dudas sobre APIs y librerías.
+
+En todos los casos, el autor ha revisado, validado y asumido la responsabilidad del contenido generado. Las decisiones de arquitectura, justificaciones tecnológicas y resultados son propios. Los fragmentos de código reutilizados de fuentes externas (documentación oficial, ejemplos de librerías) se identifican con comentarios en el código fuente.
