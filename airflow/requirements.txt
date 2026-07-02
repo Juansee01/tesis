@@ -1,7 +1,7 @@
-apache-airflow[celery]==2.9.3
 apache-airflow-providers-http==4.11.0
 azure-identity==1.17.0
 azure-storage-blob==12.20.0
 requests==2.32.3
 tenacity==8.5.0
-f1-ingestion @ file:///opt/f1-ingestion
+deltalake==0.18.1
+pyarrow==16.1.0
