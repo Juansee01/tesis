@@ -1,0 +1,21 @@
+# Copy this to ~/.dbt/profiles.yml and fill in your Fabric SQL endpoint details.
+# Get the server value from: Fabric workspace > Lakehouse > SQL Analytics Endpoint > Copy connection string
+
+f1_analytics:
+  target: dev
+  outputs:
+    dev:
+      type: fabric
+      driver: "ODBC Driver 18 for SQL Server"
+      server: "your-lakehouse-endpoint.datawarehouse.fabric.microsoft.com"
+      port: 1433
+      database: "f1_lakehouse"      # your Lakehouse name in Fabric
+      schema: dbo
+      authentication: ActiveDirectoryServicePrincipal
+      tenant_id: "{{ env_var('AZURE_TENANT_ID') }}"
+      client_id: "{{ env_var('AZURE_CLIENT_ID') }}"
+      client_secret: "{{ env_var('AZURE_CLIENT_SECRET') }}"
+      encrypt: true
+      trust_cert: false
+      retries: 3
+      threads: 4

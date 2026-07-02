@@ -1,0 +1,47 @@
+version: 2
+
+models:
+  - name: mart_lap_performance
+    description: "Lap time performance aggregations per driver, race and season"
+    columns:
+      - name: driver_id
+        tests: [not_null]
+      - name: year
+        tests: [not_null]
+      - name: round
+        tests: [not_null]
+
+  - name: mart_pitstop_strategy
+    description: "Pit stop strategy details with undercut/overcut analysis"
+    columns:
+      - name: driver_id
+        tests: [not_null]
+      - name: pit_window_class
+        tests:
+          - accepted_values:
+              values: ["EARLY", "MID", "LATE"]
+
+  - name: mart_constructor_standings
+    description: "Cumulative constructor championship standings"
+    columns:
+      - name: constructor_id
+        tests: [not_null]
+      - name: cumulative_points
+        tests: [not_null]
+
+  - name: mart_pitstop_features
+    description: "ML feature table for the XGBoost pit stop classifier"
+    columns:
+      - name: driver_id
+        tests: [not_null]
+      - name: pit_window_class
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["EARLY", "MID", "LATE"]
+      - name: tyre_age_at_pit
+        tests: [not_null]
+      - name: compound_encoded
+        tests:
+          - accepted_values:
+              values: [0, 1, 2, 3]
