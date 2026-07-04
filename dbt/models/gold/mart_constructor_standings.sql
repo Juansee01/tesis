@@ -13,7 +13,7 @@ constructors as (
     select * from {{ source('silver', 'dim_constructors') }}
 ),
 
--- sum points per constructor per race, then cumulative sum ordered by round
+-- sum points per constructor per race
 race_points as (
     select
         year,
@@ -22,27 +22,36 @@ race_points as (
         sum(points) as race_points
     from results
     group by year, round, constructor_id
-)
+),
 
-select
-    rp.year,
-    rp.round,
-    rp.constructor_id,
-    c.constructor_name,
-    rp.race_points,
-    sum(rp.race_points) over (
-        partition by rp.year, rp.constructor_id
-        order by rp.round
-        rows between unbounded preceding and current row
-    ) as cumulative_points,
-    rank() over (
-        partition by rp.year, rp.round
-        order by sum(rp.race_points) over (
+-- cumulative sum ordered by round (computed here so the rank below can order by it;
+-- T-SQL does not allow a window function inside another window function's ORDER BY)
+cumulative as (
+    select
+        rp.year,
+        rp.round,
+        rp.constructor_id,
+        rp.race_points,
+        sum(rp.race_points) over (
             partition by rp.year, rp.constructor_id
             order by rp.round
             rows between unbounded preceding and current row
-        ) desc
+        ) as cumulative_points
+    from race_points rp
+)
+
+select
+    cu.year,
+    cu.round,
+    cu.constructor_id,
+    c.constructor_name,
+    cu.race_points,
+    cu.cumulative_points,
+    rank() over (
+        partition by cu.year, cu.round
+        order by cu.cumulative_points desc
     ) as championship_position
 
-from race_points rp
-left join constructors c using (constructor_id)
+from cumulative cu
+left join constructors c
+    on c.constructor_id = cu.constructor_id

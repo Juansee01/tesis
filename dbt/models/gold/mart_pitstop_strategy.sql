@@ -9,21 +9,8 @@ with pitstops as (
     select * from {{ source('silver', 'fact_pitstops') }}
 ),
 
-laps as (
-    select * from {{ source('silver', 'fact_laps') }}
-    where is_valid_lap = true
-),
-
 results as (
     select * from {{ source('silver', 'fact_results') }}
-),
-
-circuits as (
-    select * from {{ source('silver', 'dim_circuits') }}
-),
-
-schedule as (
-    select year, round, circuit_id from {{ source('silver', 'dim_circuits') }}
 ),
 
 -- average pit stop duration per circuit (used as circuit_avg_pit_time_loss)
@@ -48,18 +35,20 @@ pit_details as (
         r.constructor_id,
         r.position                                  as final_position,
         r.total_laps,
-        cast(p.lap as float) / r.total_laps         as race_progress_at_pit,
+        cast(p.lap as float) / nullif(r.total_laps, 0)  as race_progress_at_pit,
         case
             when p.lap <= 20 then 'EARLY'
             when p.lap <= 40 then 'MID'
             else 'LATE'
         end                                         as pit_window_class
     from pitstops p
-    left join results r using (year, round, driver_id)
+    left join results r
+        on r.year = p.year and r.round = p.round and r.driver_id = p.driver_id
 )
 
 select
     pd.*,
     cpa.avg_pit_duration                            as circuit_avg_pit_duration
 from pit_details pd
-left join circuit_pit_avg cpa using (year, round)
+left join circuit_pit_avg cpa
+    on cpa.year = pd.year and cpa.round = pd.round

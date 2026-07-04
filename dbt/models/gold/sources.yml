@@ -3,9 +3,11 @@ version: 2
 sources:
   - name: silver
     description: "Silver layer tables created by PySpark Bronze→Silver notebook"
+    database: f1_lakehouse   # cross-database read: dbt writes Gold to the Warehouse, reads Silver from the Lakehouse
     schema: dbo
     tables:
       - name: fact_laps
+        identifier: silver_fact_laps
         description: "One row per lap per driver per race"
         columns:
           - name: year
@@ -20,6 +22,7 @@ sources:
             tests: [not_null]
 
       - name: fact_pitstops
+        identifier: silver_fact_pitstops
         description: "One row per pit stop per driver per race"
         columns:
           - name: driver_id
@@ -28,6 +31,7 @@ sources:
             tests: [not_null]
 
       - name: fact_results
+        identifier: silver_fact_results
         description: "Race results: one row per driver per race"
         columns:
           - name: driver_id
@@ -36,21 +40,25 @@ sources:
             tests: [not_null]
 
       - name: fact_qualifying
+        identifier: silver_fact_qualifying
         description: "Qualifying results"
 
       - name: dim_drivers
+        identifier: silver_dim_drivers
         description: "Driver dimension with unified driver_id"
         columns:
           - name: driver_id
             tests: [not_null, unique]
 
       - name: dim_circuits
+        identifier: silver_dim_circuits
         description: "Circuit dimension"
         columns:
           - name: circuit_id
             tests: [not_null, unique]
 
       - name: dim_constructors
+        identifier: silver_dim_constructors
         description: "Constructor dimension"
         columns:
           - name: constructor_id

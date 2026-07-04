@@ -11,8 +11,10 @@ with pitstops as (
 ),
 
 laps as (
+    -- NOTE: no is_valid_lap filter here. The pit ("in") lap is flagged invalid in
+    -- Silver, so filtering to valid laps drops every pit lap and yields 0 features.
+    -- We need tyre_life / compound / lap_time at the pit lap regardless of validity.
     select * from {{ source('silver', 'fact_laps') }}
-    where is_valid_lap = true
 ),
 
 results as (
@@ -64,7 +66,8 @@ constructor_pit_avg as (
         r.constructor_id,
         avg(p.duration) as constructor_avg_pitstop_duration
     from pitstops p
-    join results r using (year, round, driver_id)
+    join results r
+        on r.year = p.year and r.round = p.round and r.driver_id = p.driver_id
     group by r.constructor_id
 ),
 
@@ -82,7 +85,7 @@ race_weather as (
 select
     lap.year,
     lap.round,
-    pit.driver_id,
+    lap.driver_id,
     res.constructor_id,
     lap.compound_at_pit,
     case lap.compound_at_pit
@@ -111,14 +114,14 @@ select
     end                                                         as pit_window_class
 
 from laps_at_pit lap
-left join pitstops pit
-    on pit.year = lap.year and pit.round = lap.round
-    and pit.lap = lap.pit_lap and pit.stop = lap.stop
 left join results res
-    on res.year = lap.year and res.round = lap.round and res.driver_id = pit.driver_id
-left join circuit_pit_avg cpa using (year, round)
-left join race_weather w using (year, round)
-left join constructor_pit_avg constr on constr.constructor_id = res.constructor_id
+    on res.year = lap.year and res.round = lap.round and res.driver_id = lap.driver_id
+left join circuit_pit_avg cpa
+    on cpa.year = lap.year and cpa.round = lap.round
+left join race_weather w
+    on w.year = lap.year and w.round = lap.round
+left join constructor_pit_avg constr
+    on constr.constructor_id = res.constructor_id
 
 where res.total_laps > 0
   and lap.tyre_age_at_pit is not null
