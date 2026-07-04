@@ -64,11 +64,14 @@ Solución (se mantiene dbt, no se toca la narrativa dbt de la memoria):
      symlink `/usr/local/bin/dbt`. NO instalar dbt en el env de airflow: sus deps chocan
      con los pins de airflow 2.9.3 -> pip `ResolutionTooDeep`. El DAG llama `dbt` por
      subprocess, solo necesita el binario en PATH.
-   - `docker-compose.yml`: mounts `../dbt:/opt/airflow/dbt` (arregla `DBT_PROJECT_DIR` que
-     resuelve a `/opt/airflow/dbt`) y `~/.dbt:/home/airflow/.dbt` (profiles auth CLI).
+   - `docker-compose.yml`: mounts `../dbt:/opt/dbt` y `~/.dbt:/home/airflow/.dbt`
+     (profiles auth CLI). OJO: el DAG calcula `DBT_PROJECT_DIR = Path(__file__).parents[2]/"dbt"`;
+     en el container `__file__=/opt/airflow/dags/...` -> `parents[2]=/opt` -> `/opt/dbt`
+     (NO `/opt/airflow/dbt`). Por eso el mount va a `/opt/dbt`.
    - REQUISITO runtime: `az login` fresco en el host (token ~1h); `.azure` montado comparte
      la sesión con el container. Verificado: `az account show` -> juanliza@ucm.es.
-   - PENDIENTE: correr el DAG `dag_transform_gold` end-to-end desde la UI para las capturas.
+   - VERIFICADO end-to-end (2026-07-04): DAG corrió verde (dbt_run + dbt_test success).
+     El DAG queda PAUSADO; se dispara manualmente desde la UI (decisión del usuario).
 5. **~~Ajustar `nb_ml_train`~~ HECHO (2026-07-04)** — leía Gold del LAKEHOUSE
    (`spark.read.format("delta").load("Tables/gold_mart_pitstop_features")`); ahora lee
    del WAREHOUSE via el conector Spark de Fabric:
@@ -80,8 +83,12 @@ Solución (se mantiene dbt, no se toca la narrativa dbt de la memoria):
 7. `dag_train_ml` — entrena XGBoost (necesita paso 5).
 8. `dag_ml_predict` — inferencia batch, escribe `mart_pitstop_predictions`.
 9. Power BI (4 dashboards) — apuntar al SQL endpoint del Warehouse para Gold.
-10. `dbt test --select gold` — 27 tests definidos; hay deprecation
-    `MissingArgumentsPropertyInGenericTestDeprecation` a limpiar en schema.yml.
+10. `dbt test --select gold` — PASS=26 WARN=1 ERROR=0 (verde). El único no-PASS es
+    `not_null` sobre `silver_fact_laps.lap_time`: 1640 nulls (=1.67% de ~98k laps),
+    ESPERADO en F1 (in/out-laps, safety car, vueltas incompletas). Se ajustó el test en
+    `sources.yml` a `warn_if:">0"` / `error_if:">1968"` (~2% SLA de nulos de la memoria):
+    warnea pero no rompe mientras esté bajo el SLA. Queda pendiente (cosmético) la
+    deprecation `MissingArgumentsPropertyInGenericTestDeprecation`.
 11. Push final a GitHub.
 
 ### Nota para la memoria (Plantilla Memoria TFM)

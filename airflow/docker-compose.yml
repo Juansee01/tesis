@@ -19,7 +19,7 @@ x-airflow-common: &airflow-common
     ONELAKE_ABFSS: ${ONELAKE_ABFSS}
   volumes:
     - ./dags:/opt/airflow/dags
-    - ../dbt:/opt/airflow/dbt          # dbt project (DBT_PROJECT_DIR resolves to /opt/airflow/dbt)
+    - ../dbt:/opt/dbt                  # dbt project; DAG computes DBT_PROJECT_DIR = Path(__file__).parents[2]/"dbt" = /opt/dbt
     - ~/.dbt:/home/airflow/.dbt        # profiles.yml (authentication: CLI)
     - airflow-logs:/opt/airflow/logs
     - ~/.azure:/home/airflow/.azure

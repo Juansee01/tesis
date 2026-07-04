@@ -19,7 +19,16 @@ sources:
           - name: lap_number
             tests: [not_null]
           - name: lap_time
-            tests: [not_null]
+            description: "Null for in/out-laps, safety-car and incomplete laps (expected in F1 data)."
+            tests:
+              - not_null:
+                  config:
+                    # lap_time is legitimately null on in/out-laps, SC laps and incomplete
+                    # laps. Tolerate up to the <=2% Silver null-rate SLA (~1968 of ~98k laps);
+                    # warn on any null to surface drift, error only above the SLA threshold.
+                    severity: error
+                    warn_if: ">0"
+                    error_if: ">1968"
 
       - name: fact_pitstops
         identifier: silver_fact_pitstops
