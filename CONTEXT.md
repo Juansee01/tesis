@@ -180,6 +180,12 @@ f1_analytics:
 - PENDIENTE ML: pegar nb_ml_train/nb_ml_infer actualizados en Fabric y correr; luego dag_train_ml.
   nb_ml_infer todavía ESCRIBE predicciones al Lakehouse (`saveAsTable`) -> revisar path
   schema-enabled (item 8).
+- BUG entrenamiento (arreglado 2026-07-04): primer run dio AUC=0.500 / Recall=0.333 (modelo
+  constante, F1=0.046, no registró). Causa: `sample_weights = 1/count` daba pesos ~0.001-0.005;
+  con `min_child_weight=1` (default XGBoost) los hessianos por hoja nunca llegan a 1 -> 0 splits
+  -> predicción constante. Fix: `compute_sample_weight(class_weight="balanced", y=y_train)`
+  (pesos promedian 1). Las features del mart SÍ tienen señal (verificado por SQL: rangos y
+  distintos valores OK; solo `weather_is_dry` es constante=1, inútil pero inofensiva).
 
 ## Sesión 2026-07-03 (resumen)
 - Reinstalado ODBC Driver 18 (`brew reinstall msodbcsql18`) -> OK v18.6.2.1

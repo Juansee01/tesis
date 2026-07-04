@@ -11,6 +11,7 @@ import numpy as np
 from xgboost import XGBClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import GridSearchCV
+from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -71,9 +72,12 @@ X_train = train_df[FEATURE_COLS].fillna(0).values
 X_val   = val_df[FEATURE_COLS].fillna(0).values
 X_test  = test_df[FEATURE_COLS].fillna(0).values
 
-# class weights to handle imbalance
-class_counts = np.bincount(y_train)
-sample_weights = np.array([1 / class_counts[y] for y in y_train])
+# class weights to handle imbalance.
+# NOTE: raw 1/count weights are ~0.001-0.005 here; with XGBoost's default
+# min_child_weight=1 the per-leaf hessian sum never reaches 1, so the trees make
+# zero splits and the model collapses to a constant prediction (AUC 0.5). Use
+# sklearn's "balanced" weights instead: n/(n_classes*count), which average to 1.
+sample_weights = compute_sample_weight(class_weight="balanced", y=y_train)
 
 # ── Hyperparameter search (grid search on validation set) ────────────────────
 
