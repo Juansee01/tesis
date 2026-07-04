@@ -15,7 +15,7 @@ from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_sco
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-LAKEHOUSE = "f1_lakehouse"
+WAREHOUSE = "f1_warehouse"          # Gold marts live in the Fabric Warehouse, not the Lakehouse
 EXPERIMENT_NAME = "f1_pitstop_classifier"
 F1_THRESHOLD = 0.65   # minimum F1-score to register the model as production
 
@@ -32,9 +32,12 @@ FEATURE_COLS = [
 ]
 LABEL_COL = "pit_window_class"
 
-# ── Load feature table from Gold ─────────────────────────────────────────────
+# ── Load feature table from Gold (Fabric Warehouse) ──────────────────────────
+# Gold marts are materialized by dbt in the Warehouse `f1_warehouse`, read via
+# the Fabric Spark connector (synapsesql). The Lakehouse SQL endpoint is read-only
+# so dbt cannot write there; hence marts live in the Warehouse.
 
-df_spark = spark.read.format("delta").load(f"Tables/gold_mart_pitstop_features")
+df_spark = spark.read.synapsesql(f"{WAREHOUSE}.dbo.mart_pitstop_features")
 df = df_spark.toPandas()
 
 print(f"Total samples: {len(df)}")
