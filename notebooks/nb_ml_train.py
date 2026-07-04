@@ -15,8 +15,17 @@ from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_sco
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-WAREHOUSE = "f1_warehouse"          # Gold marts live in the Fabric Warehouse, not the Lakehouse
+# Gold marts live in the Fabric Warehouse (dbt writes them there). Warehouse tables are
+# stored as Delta in OneLake, so Spark reads them by ABFSS path with the delta format.
+# (spark.read.synapsesql is NOT available in this Fabric Spark runtime.)
 # dbt writes the marts under schema `dbo` + `+schema: gold` = `dbo_gold`.
+WORKSPACE_ID = "8bdbcee8-5387-4ad5-a7db-e92c73250b76"
+WAREHOUSE_ID = "c603802a-0c47-446d-b328-a4acaabed970"   # f1_warehouse
+GOLD_SCHEMA  = "dbo_gold"
+FEATURES_PATH = (
+    f"abfss://{WORKSPACE_ID}@onelake.dfs.fabric.microsoft.com/"
+    f"{WAREHOUSE_ID}/Tables/{GOLD_SCHEMA}/mart_pitstop_features"
+)
 EXPERIMENT_NAME = "f1_pitstop_classifier"
 F1_THRESHOLD = 0.65   # minimum F1-score to register the model as production
 
@@ -33,12 +42,9 @@ FEATURE_COLS = [
 ]
 LABEL_COL = "pit_window_class"
 
-# ── Load feature table from Gold (Fabric Warehouse) ──────────────────────────
-# Gold marts are materialized by dbt in the Warehouse `f1_warehouse`, read via
-# the Fabric Spark connector (synapsesql). The Lakehouse SQL endpoint is read-only
-# so dbt cannot write there; hence marts live in the Warehouse.
+# ── Load feature table from Gold (Fabric Warehouse, via OneLake Delta path) ──
 
-df_spark = spark.read.synapsesql(f"{WAREHOUSE}.dbo_gold.mart_pitstop_features")
+df_spark = spark.read.format("delta").load(FEATURES_PATH)
 df = df_spark.toPandas()
 
 print(f"Total samples: {len(df)}")

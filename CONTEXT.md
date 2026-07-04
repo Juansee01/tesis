@@ -11,6 +11,7 @@ TFM Data Engineering Master UCM. Pipeline completo de F1:
 ## Fabric (UCM license, sin Service Principal)
 - Workspace ID: `8bdbcee8-5387-4ad5-a7db-e92c73250b76`
 - Lakehouse ID: `62643acc-3951-41db-a299-4505be982467`
+- Warehouse ID: `c603802a-0c47-446d-b328-a4acaabed970` (f1_warehouse)
 - Workspace name en Spark: `f1_analytics`
 - Lakehouse name: `f1_lakehouse`
 - Warehouse name: `f1_warehouse`  (NUEVO — destino de escritura de Gold, ver decisión abajo)
@@ -171,6 +172,14 @@ f1_analytics:
   SILVER por ABFSS con path `Tables/dbo/` (Lakehouse schema-enabled). Ambas funciones verdes.
 - ENVS nuevos en airflow/.env (no git): `FABRIC_SQL_HOST`, `FABRIC_WAREHOUSE`.
 - REGLA: el usuario corre los DAGs desde la UI de Airflow; yo NO disparo dag runs.
+- Notebooks ML leen el mart del Warehouse: `spark.read.synapsesql(...)` NO existe en el runtime
+  de Fabric (`AttributeError`). Cambiado a `spark.read.format("delta").load(<abfss>)`. Las tablas
+  del Warehouse son Delta en OneLake:
+  `abfss://<ws>@onelake.dfs.fabric.microsoft.com/<warehouse_id>/Tables/dbo_gold/mart_pitstop_features`.
+  (deltalake-rs da `DeltaProtocolError` en ese path -> protocolo nuevo; Spark sí lo lee.)
+- PENDIENTE ML: pegar nb_ml_train/nb_ml_infer actualizados en Fabric y correr; luego dag_train_ml.
+  nb_ml_infer todavía ESCRIBE predicciones al Lakehouse (`saveAsTable`) -> revisar path
+  schema-enabled (item 8).
 
 ## Sesión 2026-07-03 (resumen)
 - Reinstalado ODBC Driver 18 (`brew reinstall msodbcsql18`) -> OK v18.6.2.1

@@ -14,8 +14,18 @@ from pyspark.sql.types import StructType, StructField, StringType, DoubleType, T
 from datetime import datetime
 
 LAKEHOUSE = "f1_lakehouse"          # predictions are still written back to the Lakehouse
-WAREHOUSE = "f1_warehouse"          # Gold feature marts live in the Warehouse
 MODEL_NAME = "f1_pitstop_classifier"
+
+# Gold feature mart lives in the Fabric Warehouse; its Delta files sit in OneLake, so
+# Spark reads them by ABFSS path (spark.read.synapsesql is not available in this runtime).
+# dbt schema: `dbo` + `+schema: gold` = `dbo_gold`.
+WORKSPACE_ID = "8bdbcee8-5387-4ad5-a7db-e92c73250b76"
+WAREHOUSE_ID = "c603802a-0c47-446d-b328-a4acaabed970"   # f1_warehouse
+GOLD_SCHEMA  = "dbo_gold"
+FEATURES_PATH = (
+    f"abfss://{WORKSPACE_ID}@onelake.dfs.fabric.microsoft.com/"
+    f"{WAREHOUSE_ID}/Tables/{GOLD_SCHEMA}/mart_pitstop_features"
+)
 
 FEATURE_COLS = [
     "compound_encoded",
@@ -37,9 +47,9 @@ model = mlflow.xgboost.load_model(model_uri)
 model_version = mlflow.MlflowClient().get_latest_versions(MODEL_NAME, stages=["production"])[0].version
 print(f"Loaded model version: {model_version}")
 
-# ── Load feature table (Fabric Warehouse) ─────────────────────────────────────
+# ── Load feature table (Fabric Warehouse, via OneLake Delta path) ────────────
 
-features_spark = spark.read.synapsesql(f"{WAREHOUSE}.dbo_gold.mart_pitstop_features")
+features_spark = spark.read.format("delta").load(FEATURES_PATH)
 
 # infer on the most recent year available
 max_year = features_spark.agg(F.max("year")).collect()[0][0]
