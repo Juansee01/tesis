@@ -85,7 +85,10 @@ output_cols = [
 predictions_df = df[output_cols]
 predictions_spark = spark.createDataFrame(predictions_df)
 
+# f1_lakehouse is schema-enabled: write with a bare table name so it lands under the
+# default schema (Tables/dbo/), same as the Silver notebook. A two-part
+# "f1_lakehouse.<table>" name misresolves on a schema-enabled Lakehouse.
 predictions_spark.write.format("delta").mode("overwrite").saveAsTable(
-    f"{LAKEHOUSE}.gold_mart_pitstop_predictions"
+    "gold_mart_pitstop_predictions"
 )
 print(f"Predictions written: {len(predictions_df)} rows to gold_mart_pitstop_predictions")

@@ -93,8 +93,17 @@ Solución (se mantiene dbt, no se toca la narrativa dbt de la memoria):
      `Tables/dbo/silver_*`, no `Tables/silver_*`. Corregido el path ABFSS en `validate_silver_tables`.
    - Resultado: SILVER todas las cols 0% null y sin duplicados; GOLD marts con filas
      (lap_performance 1718, pitstop_strategy 2462, constructor_standings 900, pitstop_features 2264).
-7. `dag_train_ml` — entrena XGBoost (necesita paso 5).
-8. `dag_ml_predict` — inferencia batch, escribe `mart_pitstop_predictions`.
+7. **nb_ml_train VERIFICADO en Fabric (2026-07-04)** — corrió y REGISTRÓ el modelo en producción:
+   Train F1 0.994 | Val 0.904 | Test 0.891 | AUC 0.988 (>= 0.65). PENDIENTE: correr
+   `dag_train_ml` desde la UI (dispara el mismo notebook por API) para las capturas.
+   OJO memoria: AUC 0.988 es muy alto -> posible que `pit_window_class` esté derivada de
+   `race_progress_at_pit` (feature) -> justificar definición del label / descartar leakage trivial.
+8. `dag_ml_predict` / nb_ml_infer — LISTO para probar en Fabric. Fix write: en Lakehouse
+   schema-enabled se escribe con nombre BARE `saveAsTable("gold_mart_pitstop_predictions")`
+   (cae en Tables/dbo/); el 2-part `f1_lakehouse.<tabla>` misresuelve. Predicciones quedan en
+   el LAKEHOUSE (Spark no puede escribir al Warehouse: sin conector, igual que el read).
+   Columnas del mart para output_cols verificadas (year, round, driver_id, constructor_id,
+   pit_window_class: todas presentes).
 9. Power BI (4 dashboards) — apuntar al SQL endpoint del Warehouse para Gold.
 10. `dbt test --select gold` — PASS=26 WARN=1 ERROR=0 (verde). El único no-PASS es
     `not_null` sobre `silver_fact_laps.lap_time`: 1640 nulls (=1.67% de ~98k laps),
