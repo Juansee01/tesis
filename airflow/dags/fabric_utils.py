@@ -24,13 +24,12 @@ def get_fabric_token() -> str:
 def run_notebook(workspace_id: str, notebook_id: str, parameters: dict | None = None) -> str:
     """Trigger a Fabric notebook and return the job instance ID."""
     token = get_fabric_token()
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    url = f"{FABRIC_API}/workspaces/{workspace_id}/items/{notebook_id}/jobs/instances?jobType=RunNotebook"
 
-    body = {}
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    body: dict = {"executionData": {}}
     if parameters:
         body["executionData"] = {"parameters": parameters}
-
-    url = f"{FABRIC_API}/workspaces/{workspace_id}/items/{notebook_id}/jobs/instances?jobType=RunNotebook"
     resp = requests.post(url, headers=headers, json=body, timeout=30)
     resp.raise_for_status()
 
@@ -52,7 +51,7 @@ def wait_for_notebook(job_location: str, poll_interval: int = 30, timeout: int =
         data = resp.json()
         status = data.get("status", "")
 
-        if status in ("Succeeded", "Failed", "Cancelled"):
+        if status in ("Succeeded", "Completed", "Failed", "Cancelled", "DeadLettered"):
             return status
 
         time.sleep(poll_interval)

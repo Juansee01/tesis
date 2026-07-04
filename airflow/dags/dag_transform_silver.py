@@ -14,7 +14,7 @@ from fabric_utils import run_notebook, wait_for_notebook
 
 default_args = {
     "owner": "juan_lizarralde",
-    "depends_on_past": True,  # silver depends on previous run completing successfully
+    "depends_on_past": True,
     "email_on_failure": True,
     "email": ["juanlizarralde@turismocity.com"],
     "retries": 3,
@@ -27,17 +27,12 @@ def trigger_silver_notebook(**context):
     workspace_id = os.environ["FABRIC_WORKSPACE_ID"]
     notebook_id = os.environ["NOTEBOOK_ID_BRONZE_TO_SILVER"]
 
-    execution_date = context["execution_date"]
-    params = {
-        "execution_date": execution_date.isoformat(),
-    }
-
-    job_location = run_notebook(workspace_id, notebook_id, parameters=params)
+    job_location = run_notebook(workspace_id, notebook_id)
     print(f"Silver notebook triggered — polling job at: {job_location}")
 
     status = wait_for_notebook(job_location, poll_interval=30, timeout=3600)
 
-    if status != "Succeeded":
+    if status not in ("Succeeded", "Completed"):
         raise RuntimeError(f"Silver notebook failed with status: {status}")
 
     print(f"Silver transformation complete — status: {status}")

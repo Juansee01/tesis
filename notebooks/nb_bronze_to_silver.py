@@ -1,33 +1,63 @@
 """
 Fabric Notebook: Bronze → Silver transformation
-Paste this code into a new Fabric Notebook in your workspace.
-The notebook reads Delta tables from Bronze and writes cleaned Silver tables.
-'spark' is pre-configured in Fabric — no need to create a SparkSession.
+Paste this code into the Fabric Notebook 'nb_bronze_to_silver' (replace existing content).
+Each Bronze table was written as a separate Delta table per year/round, so we union them here.
 """
 
-# ── Parameters (set via Airflow or Fabric notebook parameters cell) ──────────
-# In Fabric, parameters are injected as variables. Defaults here for manual runs.
-execution_date = execution_date if "execution_date" in dir() else "2024-01-01"  # noqa
-
-from pyspark.sql import functions as F
-from pyspark.sql.types import DoubleType, IntegerType, BooleanType, StringType
+from functools import reduce
+from pyspark.sql import DataFrame, functions as F
+from pyspark.sql.types import DoubleType, IntegerType, BooleanType
 from pyspark.sql.window import Window
 
-LAKEHOUSE = "f1_lakehouse"  # your Fabric Lakehouse name attached to this notebook
+SEASON_ROUNDS = {2021: 22, 2022: 22, 2023: 22, 2024: 24}
+YEARS = sorted(SEASON_ROUNDS.keys())
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# 1. DRIVERS — unify driver IDs between fastf1 (abbreviation) and Ergast (slug)
-# ────────────────────────────────────────────────────────────────────────────
+def _load_dim(table: str) -> DataFrame:
+    dfs = []
+    for y in YEARS:
+        try:
+            df = (
+                spark.read.format("delta")
+                .load(f"Tables/bronze_{table}/year={y}")
+                .withColumn("year", F.lit(y).cast(IntegerType()))
+            )
+            dfs.append(df)
+        except Exception as e:
+            print(f"  skip bronze_{table}/year={y}: {e}")
+    if not dfs:
+        raise RuntimeError(f"No Bronze data found for table: {table}")
+    return reduce(DataFrame.union, dfs)
 
-drivers_raw = spark.read.format("delta").load(f"Tables/bronze_drivers")
+
+def _load_fact(table: str) -> DataFrame:
+    dfs = []
+    for y, max_r in SEASON_ROUNDS.items():
+        for r in range(1, max_r + 1):
+            try:
+                df = (
+                    spark.read.format("delta")
+                    .load(f"Tables/bronze_{table}/year={y}/round={r}")
+                    .withColumn("year", F.lit(y).cast(IntegerType()))
+                    .withColumn("round", F.lit(r).cast(IntegerType()))
+                )
+                dfs.append(df)
+            except Exception:
+                pass
+    if not dfs:
+        raise RuntimeError(f"No Bronze data found for table: {table}")
+    return reduce(DataFrame.union, dfs)
+
+
+# ── 1. DRIVERS ────────────────────────────────────────────────────────────────
+
+drivers_raw = _load_dim("drivers")
 
 drivers = (
     drivers_raw
     .dropDuplicates(["driver_id", "year"])
     .withColumn("abbreviation", F.upper(F.col("abbreviation")))
     .withColumn("driver_id", F.lower(F.col("driver_id")))
-    # keep latest year's record for each driver_id
     .withColumn("_rank", F.row_number().over(
         Window.partitionBy("driver_id").orderBy(F.desc("year"))
     ))
@@ -35,15 +65,13 @@ drivers = (
     .drop("_rank", "year")
 )
 
-drivers.write.format("delta").mode("overwrite").saveAsTable(f"{LAKEHOUSE}.silver_dim_drivers")
-print(f"dim_drivers: {drivers.count()} drivers")
+drivers.write.format("delta").mode("overwrite").saveAsTable("silver_dim_drivers")
+print(f"silver_dim_drivers: {drivers.count()} rows")
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# 2. CONSTRUCTORS
-# ────────────────────────────────────────────────────────────────────────────
+# ── 2. CONSTRUCTORS ───────────────────────────────────────────────────────────
 
-constructors_raw = spark.read.format("delta").load("Tables/bronze_constructors")
+constructors_raw = _load_dim("constructors")
 
 constructors = (
     constructors_raw
@@ -51,68 +79,58 @@ constructors = (
     .withColumn("constructor_id", F.lower(F.col("constructor_id")))
 )
 
-constructors.write.format("delta").mode("overwrite").saveAsTable(f"{LAKEHOUSE}.silver_dim_constructors")
-print(f"dim_constructors: {constructors.count()} constructors")
+constructors.write.format("delta").mode("overwrite").saveAsTable("silver_dim_constructors")
+print(f"silver_dim_constructors: {constructors.count()} rows")
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# 3. CIRCUITS
-# ────────────────────────────────────────────────────────────────────────────
+# ── 3. CIRCUITS ───────────────────────────────────────────────────────────────
 
-circuits_raw = spark.read.format("delta").load("Tables/bronze_circuits")
+circuits_raw = _load_dim("circuits")
 
 circuits = circuits_raw.dropDuplicates(["circuit_id"])
 
-circuits.write.format("delta").mode("overwrite").saveAsTable(f"{LAKEHOUSE}.silver_dim_circuits")
-print(f"dim_circuits: {circuits.count()} circuits")
+circuits.write.format("delta").mode("overwrite").saveAsTable("silver_dim_circuits")
+print(f"silver_dim_circuits: {circuits.count()} rows")
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# 4. FACT_LAPS — main transformation
-# ────────────────────────────────────────────────────────────────────────────
+# ── 4. FACT_LAPS ──────────────────────────────────────────────────────────────
 
-laps_raw = spark.read.format("delta").load("Tables/bronze_laps")
-results_f1_raw = spark.read.format("delta").load("Tables/bronze_results_fastf1")
+laps_raw = _load_fact("laps")
 
-# join fastf1 abbreviation to Ergast driver_id
-abbrev_to_id = drivers.select("driver_id", "abbreviation")
+abbrev_to_id = drivers.select(
+    F.col("driver_id"),
+    F.col("abbreviation").alias("driver_abbreviation"),
+)
 
 laps = (
     laps_raw
-    # cast types
-    .withColumn("lap_time",    F.col("lap_time").cast(DoubleType()))
+    .withColumn("lap_time",     F.col("lap_time").cast(DoubleType()))
     .withColumn("sector1_time", F.col("sector1_time").cast(DoubleType()))
     .withColumn("sector2_time", F.col("sector2_time").cast(DoubleType()))
     .withColumn("sector3_time", F.col("sector3_time").cast(DoubleType()))
-    .withColumn("tyre_life",   F.col("tyre_life").cast(IntegerType()))
-    .withColumn("lap_number",  F.col("lap_number").cast(IntegerType()))
-    # is_valid_lap: True only if lap_time is not null and is_valid_lap is True
+    .withColumn("tyre_life",    F.col("tyre_life").cast(IntegerType()))
+    .withColumn("lap_number",   F.col("lap_number").cast(IntegerType()))
     .withColumn(
         "is_valid_lap",
         F.col("is_valid_lap").cast(BooleanType()) & F.col("lap_time").isNotNull()
     )
     .withColumn("driver_abbreviation", F.upper(F.col("driver_abbreviation")))
-    # join to get Ergast driver_id
     .join(abbrev_to_id, on="driver_abbreviation", how="left")
-    # deduplicate
     .dropDuplicates(["year", "round", "driver_abbreviation", "lap_number"])
 )
 
-# null rate check (log only — Great Expectations handles the hard validation)
 null_rate = laps.filter(F.col("lap_time").isNull()).count() / laps.count()
-print(f"fact_laps null rate (lap_time): {null_rate:.2%}")
+print(f"silver_fact_laps null rate (lap_time): {null_rate:.2%}")
 
 laps.write.format("delta").mode("overwrite").partitionBy("year", "round").saveAsTable(
-    f"{LAKEHOUSE}.silver_fact_laps"
+    "silver_fact_laps"
 )
-print(f"fact_laps: {laps.count()} rows")
+print(f"silver_fact_laps: {laps.count()} rows")
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# 5. FACT_PITSTOPS
-# ────────────────────────────────────────────────────────────────────────────
+# ── 5. FACT_PITSTOPS ──────────────────────────────────────────────────────────
 
-pitstops_raw = spark.read.format("delta").load("Tables/bronze_pitstops")
+pitstops_raw = _load_fact("pitstops")
 
 pitstops = (
     pitstops_raw
@@ -120,22 +138,19 @@ pitstops = (
     .withColumn("stop",     F.col("stop").cast(IntegerType()))
     .withColumn("duration", F.col("duration").cast(DoubleType()))
     .withColumn("driver_id", F.lower(F.col("driver_id")))
-    # outlier filter: pit stop durations < 15s or > 120s are likely data errors
     .filter((F.col("duration").isNull()) | (F.col("duration").between(15, 120)))
     .dropDuplicates(["year", "round", "driver_id", "stop"])
 )
 
 pitstops.write.format("delta").mode("overwrite").partitionBy("year", "round").saveAsTable(
-    f"{LAKEHOUSE}.silver_fact_pitstops"
+    "silver_fact_pitstops"
 )
-print(f"fact_pitstops: {pitstops.count()} rows")
+print(f"silver_fact_pitstops: {pitstops.count()} rows")
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# 6. FACT_RESULTS — merge fastf1 + Ergast
-# ────────────────────────────────────────────────────────────────────────────
+# ── 6. FACT_RESULTS ───────────────────────────────────────────────────────────
 
-results_ergast_raw = spark.read.format("delta").load("Tables/bronze_results_ergast")
+results_ergast_raw = _load_fact("results_ergast")
 
 results_ergast = (
     results_ergast_raw
@@ -149,16 +164,14 @@ results_ergast = (
 )
 
 results_ergast.write.format("delta").mode("overwrite").partitionBy("year", "round").saveAsTable(
-    f"{LAKEHOUSE}.silver_fact_results"
+    "silver_fact_results"
 )
-print(f"fact_results: {results_ergast.count()} rows")
+print(f"silver_fact_results: {results_ergast.count()} rows")
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# 7. FACT_QUALIFYING
-# ────────────────────────────────────────────────────────────────────────────
+# ── 7. FACT_QUALIFYING ────────────────────────────────────────────────────────
 
-qualifying_raw = spark.read.format("delta").load("Tables/bronze_qualifying")
+qualifying_raw = _load_fact("qualifying")
 
 qualifying = (
     qualifying_raw
@@ -169,8 +182,9 @@ qualifying = (
 )
 
 qualifying.write.format("delta").mode("overwrite").partitionBy("year", "round").saveAsTable(
-    f"{LAKEHOUSE}.silver_fact_qualifying"
+    "silver_fact_qualifying"
 )
-print(f"fact_qualifying: {qualifying.count()} rows")
+print(f"silver_fact_qualifying: {qualifying.count()} rows")
 
-print("Bronze → Silver transformation complete")
+
+print("\nBronze → Silver transformation complete.")
