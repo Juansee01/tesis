@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 WAREHOUSE = "f1_warehouse"          # Gold marts live in the Fabric Warehouse, not the Lakehouse
+# dbt writes the marts under schema `dbo` + `+schema: gold` = `dbo_gold`.
 EXPERIMENT_NAME = "f1_pitstop_classifier"
 F1_THRESHOLD = 0.65   # minimum F1-score to register the model as production
 
@@ -37,7 +38,7 @@ LABEL_COL = "pit_window_class"
 # the Fabric Spark connector (synapsesql). The Lakehouse SQL endpoint is read-only
 # so dbt cannot write there; hence marts live in the Warehouse.
 
-df_spark = spark.read.synapsesql(f"{WAREHOUSE}.dbo.mart_pitstop_features")
+df_spark = spark.read.synapsesql(f"{WAREHOUSE}.dbo_gold.mart_pitstop_features")
 df = df_spark.toPandas()
 
 print(f"Total samples: {len(df)}")

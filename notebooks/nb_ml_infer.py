@@ -39,7 +39,7 @@ print(f"Loaded model version: {model_version}")
 
 # ── Load feature table (Fabric Warehouse) ─────────────────────────────────────
 
-features_spark = spark.read.synapsesql(f"{WAREHOUSE}.dbo.mart_pitstop_features")
+features_spark = spark.read.synapsesql(f"{WAREHOUSE}.dbo_gold.mart_pitstop_features")
 
 # infer on the most recent year available
 max_year = features_spark.agg(F.max("year")).collect()[0][0]
