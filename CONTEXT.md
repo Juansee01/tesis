@@ -62,9 +62,13 @@ Solución (se mantiene dbt, no se toca la narrativa dbt de la memoria):
      funcionar con las creds montadas.
    - NOTA networkx: dbt-core 1.12 trae networkx viejo (usa `fractions.gcd`, removido en Py>=3.9);
      en local se arregló con `pip install "networkx>=3,<4"`. En el Dockerfile fijar networkx>=3.
-5. **Ajustar `nb_ml_train`** — hoy lee Gold del LAKEHOUSE (`Tables/gold_mart_pitstop_features`),
-   pero Gold ahora vive en el WAREHOUSE `f1_warehouse`. Hay que cambiar la lectura
-   (leer del Warehouse por Spark/ABFSS o via SQL). BLOQUEA el entrenamiento.
+5. **~~Ajustar `nb_ml_train`~~ HECHO (2026-07-04)** — leía Gold del LAKEHOUSE
+   (`spark.read.format("delta").load("Tables/gold_mart_pitstop_features")`); ahora lee
+   del WAREHOUSE via el conector Spark de Fabric:
+   `spark.read.synapsesql("f1_warehouse.dbo.mart_pitstop_features")` (tabla SIN prefijo `gold_`).
+   Mismo fix aplicado a `nb_ml_infer` (lectura de features). NOTA: `nb_ml_infer` aún
+   ESCRIBE las predicciones al Lakehouse (`gold_mart_pitstop_predictions`) — el destino de
+   escritura sigue pendiente (ver item 8).
 6. `dag_validate` — tests Great Expectations sobre Silver y Gold.
 7. `dag_train_ml` — entrena XGBoost (necesita paso 5).
 8. `dag_ml_predict` — inferencia batch, escribe `mart_pitstop_predictions`.
@@ -126,6 +130,14 @@ f1_analytics:
 - Join `on="driver_abbreviation"` -> `.alias("driver_abbreviation")`
 - Fabric devuelve `"Completed"` no `"Succeeded"` -> `wait_for_notebook()` acepta ambos
 - DAG silver pasaba `execution_date` -> `NotebookBadWebRequest` -> eliminado
+
+## Sesión 2026-07-04 (resumen)
+- Fix lectura Gold desde Warehouse en notebooks ML:
+  - `nb_ml_train`: `Tables/gold_mart_pitstop_features` (Delta Lakehouse) ->
+    `spark.read.synapsesql("f1_warehouse.dbo.mart_pitstop_features")`. Desbloquea item 7 (train).
+  - `nb_ml_infer`: misma lectura de features desde Warehouse; escritura de predicciones
+    sigue en Lakehouse (pendiente item 8).
+- Airflow levantado en host: http://localhost:8080 (admin/admin).
 
 ## Sesión 2026-07-03 (resumen)
 - Reinstalado ODBC Driver 18 (`brew reinstall msodbcsql18`) -> OK v18.6.2.1
