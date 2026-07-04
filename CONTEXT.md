@@ -54,14 +54,21 @@ Solución (se mantiene dbt, no se toca la narrativa dbt de la memoria):
      3 clases presentes (EARLY/MID/LATE). Alimenta `nb_ml_train`.
 
 ### EN PROGRESO / PENDIENTE
-4. **dbt en el container de Airflow (REQUERIDO — hay que correrlo desde Airflow para las capturas)**
-   - `dag_transform_gold.py` ya llama a `dbt run`/`dbt test` DENTRO del container.
-   - Falta en `airflow/Dockerfile`: instalar `dbt-fabric` + `ODBC Driver 18 for SQL Server`.
-   - Falta: hacer que `~/.dbt/profiles.yml` (auth `CLI`) esté disponible en el container
-     (mount o copy). El container ya tiene `az` CLI y `.azure` montado, asi que auth `CLI` deberia
-     funcionar con las creds montadas.
-   - NOTA networkx: dbt-core 1.12 trae networkx viejo (usa `fractions.gcd`, removido en Py>=3.9);
-     en local se arregló con `pip install "networkx>=3,<4"`. En el Dockerfile fijar networkx>=3.
+4. **~~dbt en el container de Airflow~~ HECHO (2026-07-04)** — `dbt debug` PASS desde el
+   container (`All checks passed!`, conecta a `f1_warehouse`). Cómo quedó:
+   - `airflow/Dockerfile`: `msodbcsql18` + `unixodbc-dev` + `azure-cli` desde repos MS
+     (azure-cli desde `repos/azure-cli/`, ODBC desde `debian/12/prod`; MISMO keyring
+     `microsoft-prod.gpg`, ambas sources con `signed-by` explícito, se borran listas MS
+     previas para evitar `Conflicting values Signed-By`).
+   - dbt en VENV AISLADO (`/opt/dbt-venv`, `dbt-fabric==1.10.0` + `networkx>=3,<4`),
+     symlink `/usr/local/bin/dbt`. NO instalar dbt en el env de airflow: sus deps chocan
+     con los pins de airflow 2.9.3 -> pip `ResolutionTooDeep`. El DAG llama `dbt` por
+     subprocess, solo necesita el binario en PATH.
+   - `docker-compose.yml`: mounts `../dbt:/opt/airflow/dbt` (arregla `DBT_PROJECT_DIR` que
+     resuelve a `/opt/airflow/dbt`) y `~/.dbt:/home/airflow/.dbt` (profiles auth CLI).
+   - REQUISITO runtime: `az login` fresco en el host (token ~1h); `.azure` montado comparte
+     la sesión con el container. Verificado: `az account show` -> juanliza@ucm.es.
+   - PENDIENTE: correr el DAG `dag_transform_gold` end-to-end desde la UI para las capturas.
 5. **~~Ajustar `nb_ml_train`~~ HECHO (2026-07-04)** — leía Gold del LAKEHOUSE
    (`spark.read.format("delta").load("Tables/gold_mart_pitstop_features")`); ahora lee
    del WAREHOUSE via el conector Spark de Fabric:
@@ -138,6 +145,8 @@ f1_analytics:
   - `nb_ml_infer`: misma lectura de features desde Warehouse; escritura de predicciones
     sigue en Lakehouse (pendiente item 8).
 - Airflow levantado en host: http://localhost:8080 (admin/admin).
+- dbt corriendo DENTRO del container de Airflow (item 4 HECHO): Dockerfile con ODBC Driver 18
+  + azure-cli + venv dbt aislado; compose monta `../dbt` y `~/.dbt`. `dbt debug` PASS.
 
 ## Sesión 2026-07-03 (resumen)
 - Reinstalado ODBC Driver 18 (`brew reinstall msodbcsql18`) -> OK v18.6.2.1
