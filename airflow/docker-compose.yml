@@ -17,6 +17,8 @@ x-airflow-common: &airflow-common
     FABRIC_WORKSPACE_ID: ${FABRIC_WORKSPACE_ID}
     FABRIC_LAKEHOUSE_ID: ${FABRIC_LAKEHOUSE_ID}
     ONELAKE_ABFSS: ${ONELAKE_ABFSS}
+    FABRIC_SQL_HOST: ${FABRIC_SQL_HOST}
+    FABRIC_WAREHOUSE: ${FABRIC_WAREHOUSE}
   volumes:
     - ./dags:/opt/airflow/dags
     - ../dbt:/opt/dbt                  # dbt project; DAG computes DBT_PROJECT_DIR = Path(__file__).parents[2]/"dbt" = /opt/dbt

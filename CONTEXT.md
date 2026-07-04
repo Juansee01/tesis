@@ -79,7 +79,19 @@ Solución (se mantiene dbt, no se toca la narrativa dbt de la memoria):
    Mismo fix aplicado a `nb_ml_infer` (lectura de features). NOTA: `nb_ml_infer` aún
    ESCRIBE las predicciones al Lakehouse (`gold_mart_pitstop_predictions`) — el destino de
    escritura sigue pendiente (ver item 8).
-6. `dag_validate` — tests Great Expectations sobre Silver y Gold.
+6. **~~dag_validate~~ HECHO (2026-07-04)** — verificado (funciones probadas en python, sin
+   ejecutar el DAG; el usuario corre los DAGs desde la UI). Dos fixes por la realidad de Fabric:
+   - GOLD ya no está en el Lakehouse: se valida por SQL contra el Warehouse. Nuevo helper
+     `fabric_utils.get_warehouse_connection()` (pyodbc + ODBC Driver 18 + token AAD scope
+     `database.windows.net`). `validate_gold_tables` cuenta filas de los 4 marts en el
+     schema `dbo_gold` (dbt: `dbo` + `+schema: gold`) y chequea integridad del feature store
+     (sin null en driver_id/pit_window_class, 3 clases presentes). Requiere `pyodbc` (agregado
+     a requirements) + envs `FABRIC_SQL_HOST` y `FABRIC_WAREHOUSE` (en `.env`, NO en git;
+     tambien `FABRIC_GOLD_SCHEMA` opcional, default `dbo_gold`).
+   - SILVER: el Lakehouse `f1_lakehouse` es SCHEMA-ENABLED -> las tablas manejadas viven en
+     `Tables/dbo/silver_*`, no `Tables/silver_*`. Corregido el path ABFSS en `validate_silver_tables`.
+   - Resultado: SILVER todas las cols 0% null y sin duplicados; GOLD marts con filas
+     (lap_performance 1718, pitstop_strategy 2462, constructor_standings 900, pitstop_features 2264).
 7. `dag_train_ml` — entrena XGBoost (necesita paso 5).
 8. `dag_ml_predict` — inferencia batch, escribe `mart_pitstop_predictions`.
 9. Power BI (4 dashboards) — apuntar al SQL endpoint del Warehouse para Gold.
@@ -154,6 +166,11 @@ f1_analytics:
 - Airflow levantado en host: http://localhost:8080 (admin/admin).
 - dbt corriendo DENTRO del container de Airflow (item 4 HECHO): Dockerfile con ODBC Driver 18
   + azure-cli + venv dbt aislado; compose monta `../dbt` y `~/.dbt`. `dbt debug` PASS.
+- `dag_transform_gold` corrido verde desde la UI por el usuario (dbt_run + dbt_test success).
+- `dag_validate` (item 6 HECHO): GOLD por SQL al Warehouse (pyodbc, `get_warehouse_connection`),
+  SILVER por ABFSS con path `Tables/dbo/` (Lakehouse schema-enabled). Ambas funciones verdes.
+- ENVS nuevos en airflow/.env (no git): `FABRIC_SQL_HOST`, `FABRIC_WAREHOUSE`.
+- REGLA: el usuario corre los DAGs desde la UI de Airflow; yo NO disparo dag runs.
 
 ## Sesión 2026-07-03 (resumen)
 - Reinstalado ODBC Driver 18 (`brew reinstall msodbcsql18`) -> OK v18.6.2.1

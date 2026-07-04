@@ -70,3 +70,32 @@ def get_storage_options() -> dict:
         "account_name": "onelake",
         "bearer_token": token,
     }
+
+
+# Fabric Warehouse tables (Gold) are not reachable via ABFSS/Delta like the Lakehouse;
+# they are only exposed through the T-SQL endpoint. Query them with pyodbc using an
+# AAD access token from the same credential chain (az login locally / MSI on ACI).
+SQL_COPT_SS_ACCESS_TOKEN = 1256  # pyodbc attr to pass an AAD access token
+WAREHOUSE_TOKEN_SCOPE = "https://database.windows.net/.default"
+
+
+def get_warehouse_connection(database: str | None = None):
+    """Return a pyodbc connection to the Fabric Warehouse SQL endpoint."""
+    import struct
+    import pyodbc
+
+    host = os.environ["FABRIC_SQL_HOST"]
+    db = database or os.environ.get("FABRIC_WAREHOUSE", "f1_warehouse")
+
+    token = _get_credential().get_token(WAREHOUSE_TOKEN_SCOPE).token
+    token_bytes = token.encode("utf-16-le")
+    token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
+
+    conn_str = (
+        "DRIVER={ODBC Driver 18 for SQL Server};"
+        f"SERVER={host},1433;DATABASE={db};"
+        "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=60;"
+    )
+    return pyodbc.connect(
+        conn_str, attrs_before={SQL_COPT_SS_ACCESS_TOKEN: token_struct}, timeout=60
+    )
