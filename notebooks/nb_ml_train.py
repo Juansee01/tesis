@@ -180,14 +180,20 @@ with mlflow.start_run(run_name=f"xgboost_{best_params['n_estimators']}est"):
 
     run_id = mlflow.active_run().info.run_id
 
-    # register as production only if test F1 meets the threshold
+    # register as production only if test F1 meets the threshold.
+    # Registry STAGES are deprecated (mlflow >= 2.9); use a model ALIAS instead.
+    # nb_ml_infer loads the model as models:/f1_pitstop_classifier@production.
     if test_metrics["f1"] >= F1_THRESHOLD:
-        mlflow.register_model(
+        mv = mlflow.register_model(
             model_uri=f"runs:/{run_id}/model",
             name="f1_pitstop_classifier",
-            tags={"stage": "production"},
         )
-        print(f"Model registered as production — F1={test_metrics['f1']:.3f} >= {F1_THRESHOLD}")
+        mlflow.MlflowClient().set_registered_model_alias(
+            name="f1_pitstop_classifier",
+            alias="production",
+            version=mv.version,
+        )
+        print(f"Model registered with alias @production — version {mv.version}, F1={test_metrics['f1']:.3f} >= {F1_THRESHOLD}")
     else:
         print(f"Model NOT registered — F1={test_metrics['f1']:.3f} < {F1_THRESHOLD} threshold")
         raise ValueError(f"Model quality below threshold. Check experiment '{EXPERIMENT_NAME}' in Fabric ML Experiments.")

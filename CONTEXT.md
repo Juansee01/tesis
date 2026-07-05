@@ -98,12 +98,19 @@ Solución (se mantiene dbt, no se toca la narrativa dbt de la memoria):
    `dag_train_ml` desde la UI (dispara el mismo notebook por API) para las capturas.
    OJO memoria: AUC 0.988 es muy alto -> posible que `pit_window_class` esté derivada de
    `race_progress_at_pit` (feature) -> justificar definición del label / descartar leakage trivial.
-8. `dag_ml_predict` / nb_ml_infer — LISTO para probar en Fabric. Fix write: en Lakehouse
-   schema-enabled se escribe con nombre BARE `saveAsTable("gold_mart_pitstop_predictions")`
-   (cae en Tables/dbo/); el 2-part `f1_lakehouse.<tabla>` misresuelve. Predicciones quedan en
-   el LAKEHOUSE (Spark no puede escribir al Warehouse: sin conector, igual que el read).
-   Columnas del mart para output_cols verificadas (year, round, driver_id, constructor_id,
-   pit_window_class: todas presentes).
+8. `dag_ml_predict` / nb_ml_infer — write a Lakehouse OK (bare name, ver abajo). PERO la
+   carga del modelo FALLÓ en Fabric (2026-07-04):
+   `MlflowException: No versions of model 'f1_pitstop_classifier' and stage 'production' found`.
+   Causa: nb_ml_train registraba con `tags={"stage":"production"}` (un TAG, no el stage) y
+   nb_ml_infer cargaba `models:/.../production` (por STAGE) -> ninguna versión en ese stage.
+   Además los STAGES están deprecados (mlflow >= 2.9). FIX APLICADO (commit, sin correr aún):
+   - nb_ml_train: `mlflow.register_model(...)` (sin tag stage) + `set_registered_model_alias(
+     name, alias="production", version=mv.version)`.
+   - nb_ml_infer: cargar por ALIAS `models:/f1_pitstop_classifier@production` y
+     `get_model_version_by_alias(...)`.
+   Write predicciones: bare `saveAsTable("gold_mart_pitstop_predictions")` -> Tables/dbo/ del
+   Lakehouse (2-part `f1_lakehouse.<tabla>` misresuelve en schema-enabled). Cols del mart para
+   output_cols verificadas (year, round, driver_id, constructor_id, pit_window_class).
 9. Power BI (4 dashboards) — apuntar al SQL endpoint del Warehouse para Gold.
 10. `dbt test --select gold` — PASS=26 WARN=1 ERROR=0 (verde). El único no-PASS es
     `not_null` sobre `silver_fact_laps.lap_time`: 1640 nulls (=1.67% de ~98k laps),
@@ -166,6 +173,24 @@ f1_analytics:
 - Join `on="driver_abbreviation"` -> `.alias("driver_abbreviation")`
 - Fabric devuelve `"Completed"` no `"Succeeded"` -> `wait_for_notebook()` acepta ambos
 - DAG silver pasaba `execution_date` -> `NotebookBadWebRequest` -> eliminado
+
+## PRÓXIMAS TAREAS (retomar mañana, orden sugerido)
+1. **Re-entrenar (nb_ml_train) en Fabric con el fix de alias.** Pegar el nb_ml_train actualizado
+   (usa `set_registered_model_alias`), correr. Verificar que registra el modelo con alias
+   `@production` (antes daba Test F1 0.891, debería repetir). Sin esto el infer no encuentra
+   el modelo.
+2. **Inferencia (nb_ml_infer) en Fabric.** Pegar el actualizado (carga `@production`), correr.
+   Verificar: carga modelo, filtra año más reciente (2024), escribe `gold_mart_pitstop_predictions`
+   en Tables/dbo/ del Lakehouse. Output esperado: "Predictions written: N rows".
+3. **Correr los DAGs desde la UI (el usuario)** en orden para capturas: `dag_train_ml` ->
+   `dag_ml_predict`. Ambos disparan los notebooks por API. `dag_train_ml` timeout 1800s.
+4. **Power BI (item 9):** 4 dashboards. Marts en SQL endpoint del WAREHOUSE (schema `dbo_gold`);
+   predicciones en el SQL endpoint del LAKEHOUSE (`gold_mart_pitstop_predictions`, Tables/dbo).
+5. **Memoria:** revisar posible leakage del label (`pit_window_class` vs `race_progress_at_pit`,
+   AUC 0.988); ajustar redacción Gold-en-Warehouse (ya notado arriba); limpiar deprecation
+   `MissingArgumentsPropertyInGenericTestDeprecation` en schema.yml (item 10, cosmético).
+6. **Recordatorio operativo:** `az login` fresco en el host antes de correr DAGs (token ~1h).
+   El usuario corre TODOS los DAGs desde la UI; el asistente NO dispara dag runs.
 
 ## Sesión 2026-07-04 (resumen)
 - Fix lectura Gold desde Warehouse en notebooks ML:

@@ -42,10 +42,12 @@ LABEL_CLASSES = ["EARLY", "MID", "LATE"]
 
 # ── Load production model ─────────────────────────────────────────────────────
 
-model_uri = f"models:/{MODEL_NAME}/production"
+# Registry stages are deprecated (mlflow >= 2.9); load by the @production alias set by
+# nb_ml_train (mlflow.MlflowClient().set_registered_model_alias).
+model_uri = f"models:/{MODEL_NAME}@production"
 model = mlflow.xgboost.load_model(model_uri)
-model_version = mlflow.MlflowClient().get_latest_versions(MODEL_NAME, stages=["production"])[0].version
-print(f"Loaded model version: {model_version}")
+model_version = mlflow.MlflowClient().get_model_version_by_alias(MODEL_NAME, "production").version
+print(f"Loaded model version: {model_version} (alias @production)")
 
 # ── Load feature table (Fabric Warehouse, via OneLake Delta path) ────────────
 
