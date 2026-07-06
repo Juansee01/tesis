@@ -1,4 +1,4 @@
-# TFM F1 Analytics — Contexto de sesión 2026-07-03
+# TFM F1 Analytics — Contexto de sesión 2026-07-06
 
 ## Proyecto
 TFM Data Engineering Master UCM. Pipeline completo de F1:
@@ -7,6 +7,26 @@ TFM Data Engineering Master UCM. Pipeline completo de F1:
 - ML: XGBoost predictor de ventanas de pit stop (EARLY/MID/LATE)
 - Orquestación: Apache Airflow 2.9.3 en Docker local
 - Repo: https://github.com/Juansee01/tesis
+
+## >>> RETOMAR AQUÍ (2026-07-06) <<<
+Pipeline end-to-end VERDE. Estado exacto para continuar:
+- **ML train + infer funcionan en Fabric.** Modelo `f1_pitstop_classifier` registrado
+  hasta version 3+ (cada run sube versión). Infer escribió 608 predicciones (2024).
+- **DAGs `dag_train_ml` y `dag_ml_predict` en SUCCESS** (runs 2026-07-06 16:02 y 16:06).
+- **DECISIÓN PENDIENTE #1 — LEAKAGE del label (bloqueante para la memoria).**
+  `race_progress_at_pit = pit_lap/total_laps` (feature) y el label `pit_window_class`
+  (bucket de `pit_lap`: <=20 EARLY, <=40 MID, else LATE) salen de la MISMA variable
+  `pit_lap` -> leakage trivial -> por eso AUC 0.988. Fix propuesto (NO aplicado aún):
+  sacar `race_progress_at_pit` de `FEATURE_COLS` en `nb_ml_train.py` + `nb_ml_infer.py`
+  (8 features, no 9); NO tocar el mart (el label se sigue calculando en dbt). Luego
+  re-pegar ambos notebooks en Fabric, re-correr, reportar AUC honesto (bajará). Alternativa
+  débil: justificar el leakage en la redacción sin re-entrenar. El resto de features
+  (tyre_age_at_pit, compound, grid, n_stops_so_far, deg slope) son estado legítimo pre-pit.
+- **PENDIENTE #2 — Power BI:** 4 dashboards (lo hace el usuario en Power BI Desktop).
+  Marts Gold en el SQL endpoint del WAREHOUSE `f1_warehouse` (schema `dbo_gold`);
+  predicciones en el SQL endpoint del LAKEHOUSE (`gold_mart_pitstop_predictions`, Tables/dbo).
+- Entorno: Airflow arriba en localhost:8080 (admin/admin); `az login` OK juanliza@ucm.es
+  (token ~1h). El usuario corre los DAGs desde la UI; el asistente NO dispara dag runs.
 
 ## Fabric (UCM license, sin Service Principal)
 - Workspace ID: `8bdbcee8-5387-4ad5-a7db-e92c73250b76`
@@ -98,16 +118,15 @@ Solución (se mantiene dbt, no se toca la narrativa dbt de la memoria):
    `dag_train_ml` desde la UI (dispara el mismo notebook por API) para las capturas.
    OJO memoria: AUC 0.988 es muy alto -> posible que `pit_window_class` esté derivada de
    `race_progress_at_pit` (feature) -> justificar definición del label / descartar leakage trivial.
-8. `dag_ml_predict` / nb_ml_infer — write a Lakehouse OK (bare name, ver abajo). PERO la
-   carga del modelo FALLÓ en Fabric (2026-07-04):
-   `MlflowException: No versions of model 'f1_pitstop_classifier' and stage 'production' found`.
-   Causa: nb_ml_train registraba con `tags={"stage":"production"}` (un TAG, no el stage) y
-   nb_ml_infer cargaba `models:/.../production` (por STAGE) -> ninguna versión en ese stage.
-   Además los STAGES están deprecados (mlflow >= 2.9). FIX APLICADO (commit, sin correr aún):
-   - nb_ml_train: `mlflow.register_model(...)` (sin tag stage) + `set_registered_model_alias(
-     name, alias="production", version=mv.version)`.
-   - nb_ml_infer: cargar por ALIAS `models:/f1_pitstop_classifier@production` y
-     `get_model_version_by_alias(...)`.
+8. **~~carga del modelo en Fabric~~ RESUELTO (2026-07-06)** — historia: primero se intentó por
+   STAGE (`models:/.../production`) -> deprecado, no había versión en ese stage. Luego por
+   ALIAS (`set_registered_model_alias` / `@production`) -> **Fabric NO implementa el alias API**:
+   `set_registered_model_alias exception ... /api/2.0/mlflow/registered-models/alias 404`.
+   FIX DEFINITIVO (commit `9174334`, VERIFICADO en Fabric): ni stage ni alias.
+   - nb_ml_train: solo `mlflow.register_model(...)` -> sube el número de versión cuando F1>=0.65.
+   - nb_ml_infer: carga la VERSIÓN MÁS ALTA:
+     `client.search_model_versions("name='f1_pitstop_classifier'")` -> `max(int(v.version))` ->
+     `models:/f1_pitstop_classifier/<version>`. Verificado: "Loaded model version: 3", 608 filas.
    Write predicciones: bare `saveAsTable("gold_mart_pitstop_predictions")` -> Tables/dbo/ del
    Lakehouse (2-part `f1_lakehouse.<tabla>` misresuelve en schema-enabled). Cols del mart para
    output_cols verificadas (year, round, driver_id, constructor_id, pit_window_class).
@@ -174,23 +193,39 @@ f1_analytics:
 - Fabric devuelve `"Completed"` no `"Succeeded"` -> `wait_for_notebook()` acepta ambos
 - DAG silver pasaba `execution_date` -> `NotebookBadWebRequest` -> eliminado
 
-## PRÓXIMAS TAREAS (retomar mañana, orden sugerido)
-1. **Re-entrenar (nb_ml_train) en Fabric con el fix de alias.** Pegar el nb_ml_train actualizado
-   (usa `set_registered_model_alias`), correr. Verificar que registra el modelo con alias
-   `@production` (antes daba Test F1 0.891, debería repetir). Sin esto el infer no encuentra
-   el modelo.
-2. **Inferencia (nb_ml_infer) en Fabric.** Pegar el actualizado (carga `@production`), correr.
-   Verificar: carga modelo, filtra año más reciente (2024), escribe `gold_mart_pitstop_predictions`
-   en Tables/dbo/ del Lakehouse. Output esperado: "Predictions written: N rows".
-3. **Correr los DAGs desde la UI (el usuario)** en orden para capturas: `dag_train_ml` ->
-   `dag_ml_predict`. Ambos disparan los notebooks por API. `dag_train_ml` timeout 1800s.
-4. **Power BI (item 9):** 4 dashboards. Marts en SQL endpoint del WAREHOUSE (schema `dbo_gold`);
-   predicciones en el SQL endpoint del LAKEHOUSE (`gold_mart_pitstop_predictions`, Tables/dbo).
-5. **Memoria:** revisar posible leakage del label (`pit_window_class` vs `race_progress_at_pit`,
-   AUC 0.988); ajustar redacción Gold-en-Warehouse (ya notado arriba); limpiar deprecation
+## PRÓXIMAS TAREAS (retomar aquí, orden sugerido)
+Todo lo de ML+DAGs ya está VERDE (ver "RETOMAR AQUÍ" arriba). Quedan 2 decisiones/tareas:
+
+1. **DECISIÓN LEAKAGE (bloqueante memoria) — ver "RETOMAR AQUÍ #1".** Si se decide corregir:
+   - Editar `FEATURE_COLS` en `notebooks/nb_ml_train.py` y `notebooks/nb_ml_infer.py`:
+     quitar `"race_progress_at_pit"` (quedan 8 features). NO tocar el mart dbt.
+   - Re-pegar nb_ml_train en Fabric, correr -> nueva versión, AUC honesto (bajará). Re-pegar
+     nb_ml_infer, correr. Re-correr `dag_train_ml` y `dag_ml_predict` desde la UI. Push.
+   - Actualizar la memoria: "se detectó leakage (feature = label reescalado), se removió, métricas reales".
+2. **Power BI (item 9):** 4 dashboards (Power BI Desktop, lo hace el usuario). Marts Gold en
+   SQL endpoint del WAREHOUSE (schema `dbo_gold`); predicciones en SQL endpoint del LAKEHOUSE
+   (`gold_mart_pitstop_predictions`, Tables/dbo).
+3. **Memoria (redacción):** ajustar Gold-en-Warehouse (ya notado arriba); limpiar deprecation
    `MissingArgumentsPropertyInGenericTestDeprecation` en schema.yml (item 10, cosmético).
-6. **Recordatorio operativo:** `az login` fresco en el host antes de correr DAGs (token ~1h).
-   El usuario corre TODOS los DAGs desde la UI; el asistente NO dispara dag runs.
+4. **Recordatorio operativo:** `az login` fresco en el host antes de correr DAGs (token ~1h).
+   El usuario corre TODOS los DAGs desde la UI; el asistente NO dispara dag runs. Levantar entorno:
+   Docker Desktop + `docker compose -f airflow/docker-compose.yml up -d`.
+
+## Sesión 2026-07-06 (resumen)
+- **ML end-to-end VERDE en Fabric.** nb_ml_train corrió (Test F1 0.891 | AUC 0.988), nb_ml_infer
+  cargó version 3 y escribió 608 predicciones (2024) a `gold_mart_pitstop_predictions`.
+- **Fabric MLflow NO soporta el registry alias API** (404 en `/api/2.0/mlflow/registered-models/alias`)
+  ni stages (deprecados). Se reemplazó alias -> resolver por número de versión más alto.
+  Commit `9174334` (`fix(ml): resolve production model by highest version...`). Ver item 8.
+- **Bug DAG: Fabric reporta éxito como `Completed`, no `Succeeded`.** `dag_train_ml` y
+  `dag_ml_predict` chequeaban solo `!= "Succeeded"` -> fallaban un run que en realidad terminó OK
+  (dag_transform_silver ya aceptaba ambos). Fix: aceptar `("Succeeded","Completed")`.
+  Commit `7ab44fe` (`fix(airflow): accept Fabric 'Completed' status...`).
+- Tras el fix, ambos DAGs re-corridos desde la UI -> **SUCCESS** (`dag_train_ml` 16:02,
+  `dag_ml_predict` 16:06). Nota: quedó un run viejo `scheduled__2026-06-29` de predict en `failed`
+  (pre-fix, schedule viejo); borrar de la UI si se quiere lista limpia para captura.
+- **LEAKAGE detectado en el label (pendiente de decisión, ver RETOMAR AQUÍ arriba).**
+  `race_progress_at_pit` y `pit_window_class` derivan ambos de `pit_lap` -> AUC 0.988 inflado.
 
 ## Sesión 2026-07-04 (resumen)
 - Fix lectura Gold desde Warehouse en notebooks ML:
