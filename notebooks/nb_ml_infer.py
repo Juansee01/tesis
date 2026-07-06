@@ -42,12 +42,18 @@ LABEL_CLASSES = ["EARLY", "MID", "LATE"]
 
 # ── Load production model ─────────────────────────────────────────────────────
 
-# Registry stages are deprecated (mlflow >= 2.9); load by the @production alias set by
-# nb_ml_train (mlflow.MlflowClient().set_registered_model_alias).
-model_uri = f"models:/{MODEL_NAME}@production"
+# Fabric's MLflow plugin implements neither registry ALIASES (404 on the alias API)
+# nor STAGES (deprecated). Resolve "production" as the HIGHEST registered version
+# number: nb_ml_train only registers a version when it clears the F1 threshold, so
+# the newest version is always the current production model.
+client = mlflow.MlflowClient()
+versions = client.search_model_versions(f"name='{MODEL_NAME}'")
+if not versions:
+    raise ValueError(f"No registered versions of '{MODEL_NAME}'. Run nb_ml_train first.")
+model_version = max(int(v.version) for v in versions)
+model_uri = f"models:/{MODEL_NAME}/{model_version}"
 model = mlflow.xgboost.load_model(model_uri)
-model_version = mlflow.MlflowClient().get_model_version_by_alias(MODEL_NAME, "production").version
-print(f"Loaded model version: {model_version} (alias @production)")
+print(f"Loaded model version: {model_version} (highest registered)")
 
 # ── Load feature table (Fabric Warehouse, via OneLake Delta path) ────────────
 
