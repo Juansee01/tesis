@@ -33,7 +33,8 @@ def trigger_inference_notebook(**context):
 
     status = wait_for_notebook(job_location, poll_interval=20, timeout=600)
 
-    if status != "Succeeded":
+    # Fabric reports notebook success as "Completed" (not "Succeeded").
+    if status not in ("Succeeded", "Completed"):
         raise RuntimeError(f"Inference notebook failed with status: {status}")
 
     print("Predictions written to mart_pitstop_predictions in Gold")

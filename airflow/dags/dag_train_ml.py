@@ -33,7 +33,8 @@ def trigger_training_notebook(**context):
     # training can take up to 15 min (GridSearchCV with 5-fold CV)
     status = wait_for_notebook(job_location, poll_interval=30, timeout=1800)
 
-    if status != "Succeeded":
+    # Fabric reports notebook success as "Completed" (not "Succeeded").
+    if status not in ("Succeeded", "Completed"):
         raise RuntimeError(f"Training notebook failed with status: {status}")
 
     print("Training complete — check Fabric ML Experiments for the registered model and metrics")
