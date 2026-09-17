@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "f1-ingestion"
+version = "0.1.0"
+description = "F1 data ingestion library - F1 Analytics Platform TFM"
+requires-python = ">=3.10"
+dependencies = [
+    "fastf1>=3.3.0",
+    "requests>=2.31.0",
+    "tenacity>=8.2.0",
+    "pandas>=2.0.0",
+    "deltalake>=0.16.0",
+    "azure-identity>=1.15.0",
+    "pyarrow>=14.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "flake8>=6.1.0",
+    "black>=23.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ingestion*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=ingestion --cov-report=html --cov-report=term-missing"

@@ -1,0 +1,28 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.env
+.venv/
+venv/
+*.log
+.coverage
+htmlcov/
+.pytest_cache/
+target/
+dbt_packages/
+dbt/profiles.yml
+airflow/logs/
+airflow/plugins/
+fastf1_cache/
+*.pkl
+*.ubj
+*.model
+.DS_Store
+
+# Entregables del TFM (memoria, video, capturas): se entregan por separado,
+# no van en el repo de codigo.
+F1_Analytics_Platform_TFM_Memoria.docx
+guion_video_5min.md
+memoria_capturas/
